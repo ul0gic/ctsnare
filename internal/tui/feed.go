@@ -42,6 +42,7 @@ type FeedModel struct {
 	width        int
 	height       int
 	ready        bool
+	autoScroll   bool // true when viewport tracks newest entries (top)
 }
 
 // NewFeedModel creates a new live feed view.
@@ -52,6 +53,7 @@ func NewFeedModel(profile string) FeedModel {
 		topKeywords: make([]domain.KeywordCount, 0, topKeywordsCount),
 		profile:     profile,
 		keys:        DefaultKeyMap(),
+		autoScroll:  true,
 	}
 }
 
@@ -91,6 +93,9 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		m.topKeywords = updateKeywordCounts(m.topKeywords, msg.Hit.Keywords)
 		if m.ready {
 			m.viewport.SetContent(m.renderHits())
+			if m.autoScroll {
+				m.viewport.GotoTop()
+			}
 		}
 		return m, nil
 
@@ -106,6 +111,9 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		}
 		if m.ready {
 			m.viewport.SetContent(m.renderHits())
+			if m.autoScroll {
+				m.viewport.GotoTop()
+			}
 		}
 		return m, nil
 
@@ -130,12 +138,16 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.ready {
 			m.viewport, cmd = m.viewport.Update(msg)
+			// If user scrolled away from top, pause auto-scroll.
+			// Re-enable when they return to the top.
+			m.autoScroll = m.viewport.YOffset == 0
 		}
 		return m, cmd
 	}
 
 	if m.ready {
 		m.viewport, cmd = m.viewport.Update(msg)
+		m.autoScroll = m.viewport.YOffset == 0
 	}
 	return m, cmd
 }
@@ -179,9 +191,14 @@ func (m FeedModel) contentWidth() int {
 
 func (m FeedModel) renderHeader() string {
 	title := StyleTitle.Render("Live Feed")
+	scrollIndicator := StyleLiveDomain.Render("[LIVE]")
+	if !m.autoScroll {
+		scrollIndicator = lipgloss.NewStyle().Foreground(colorMedSeverity).Bold(true).Render("[PAUSED]")
+	}
 	profileTag := StyleHelpDesc.Render(fmt.Sprintf("[%s]", m.profile))
-	gap := strings.Repeat(" ", max(0, m.width-lipgloss.Width(title)-lipgloss.Width(profileTag)))
-	return StyleHeader.Width(m.width).Render(title + gap + profileTag)
+	right := scrollIndicator + " " + profileTag
+	gap := strings.Repeat(" ", max(0, m.width-lipgloss.Width(title)-lipgloss.Width(right)))
+	return StyleHeader.Width(m.width).Render(title + gap + right)
 }
 
 func (m FeedModel) renderStatusBar() string {
@@ -203,9 +220,10 @@ func (m FeedModel) renderStatusBar() string {
 }
 
 func (m FeedModel) renderHelpBar() string {
-	help := StyleHelpKey.Render("tab") + StyleHelpDesc.Render("=views") + "  " +
-		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + "  " +
-		StyleHelpKey.Render("?") + StyleHelpDesc.Render("=help") + "  " +
+	sep := StyleHelpDesc.Render(" | ")
+	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
+		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + sep +
+		StyleHelpKey.Render("?") + StyleHelpDesc.Render("=help") + sep +
 		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll")
 	return StyleStatusBar.Width(m.width).Render(" " + help)
 }
@@ -254,6 +272,9 @@ func (m FeedModel) renderHitLine(hit domain.Hit) string {
 		domainStr = domainStr[:37] + "..."
 	}
 	domainRendered := sevStyle.Render(domainStr)
+	if hit.IsLive {
+		domainRendered = StyleLiveDomain.Render(domainStr)
+	}
 	kw := strings.Join(hit.Keywords, ",")
 	if len(kw) > 30 {
 		kw = kw[:27] + "..."

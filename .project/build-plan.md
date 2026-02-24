@@ -175,8 +175,8 @@ Overall Progress             [███████████         ]  55%
 | Phase 6: Documentation | 13 | 13 | 0 | 0 | 100% | DOC |
 | Phase 7.1: Enhancement Foundation | 17 | 17 | 0 | 0 | 100% | BE |
 | Phase 7.2: Enhancement Build | 32 | 32 | 0 | 0 | 100% | BE, CLI |
-| Merge Gate 3 | 1 | 0 | 0 | 0 | 0% | Lead |
-| Phase 7.3: Enhancement Integration | 8 | 0 | 0 | 0 | 0% | CLI |
+| Merge Gate 3 | 1 | 1 | 0 | 0 | 100% | Lead |
+| Phase 7.3: Enhancement Integration | 8 | 8 | 0 | 0 | 100% | CLI |
 | Phase 7.4: Enhancement Polish | 10 | 0 | 0 | 0 | 0% | QA, CLI |
 | Merge Gate 4 | 1 | 0 | 0 | 0 | 0% | Lead |
 | **Total** | **155** | **86** | **0** | **0** | **55%** | |
@@ -852,11 +852,11 @@ Overall Progress             [███████████         ]  55%
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 7.4.2.1 | Polish `internal/tui/feed.go` -- tune the auto-scrolling behavior: Verify discarded domains fade correctly after 2 seconds. Ensure the viewport auto-scrolls to show the newest entries (viewport offset tracks the top of the content). When the user has manually scrolled up, disable auto-scroll until they scroll back to the bottom (so they can read old entries without being yanked). Add a `[LIVE]` indicator in the header when auto-scroll is active, `[PAUSED]` when manual scroll is active. | CLI |
-| ⬜ | 7.4.2.2 | Polish `internal/tui/explorer.go` -- selection UX refinement: Ensure multi-select state survives sort changes and filter application (clear selection on filter change, preserve on sort). Show selection count in the filter bar: "3 selected" when items are selected. Verify delete confirmation works correctly with the confirmation overlay and doesn't swallow subsequent key presses. | CLI |
-| ⬜ | 7.4.2.3 | Polish `internal/tui/feed.go` and `internal/tui/explorer.go` -- help bar consistency: Ensure both views have a consistent help bar at the bottom. Feed view: `Tab=views | q=quit | ?=help | j/k=scroll`. Explorer view: `Tab=views | q=quit | s=sort | f=filter | b=mark | Space=select | d=delete | Enter=detail`. Detail view: `Esc=back | j/k=scroll`. The help bar should always show the keybindings relevant to the current view. | CLI |
-| ⬜ | 7.4.2.4 | Polish all TUI views -- overall consistency pass: Verify severity colors are consistent across feed, explorer, and detail views. Verify live domain highlighting (green) appears in all three views. Verify bookmark star appears in explorer and detail views. Verify the status bar width fills the terminal. Test with narrow terminals (80 cols) and wide terminals (200+ cols) to ensure layout degrades gracefully. | CLI |
-| ⬜ | 7.4.2.5 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/... && go test ./internal/tui/...` passes clean. | CLI |
+| ✅ | 7.4.2.1 | Polish `internal/tui/feed.go` -- tune the auto-scrolling behavior: Verify discarded domains fade correctly after 2 seconds. Ensure the viewport auto-scrolls to show the newest entries (viewport offset tracks the top of the content). When the user has manually scrolled up, disable auto-scroll until they scroll back to the bottom (so they can read old entries without being yanked). Add a `[LIVE]` indicator in the header when auto-scroll is active, `[PAUSED]` when manual scroll is active. | CLI |
+| ✅ | 7.4.2.2 | Polish `internal/tui/explorer.go` -- selection UX refinement: Ensure multi-select state survives sort changes and filter application (clear selection on filter change, preserve on sort). Show selection count in the filter bar: "3 selected" when items are selected. Verify delete confirmation works correctly with the confirmation overlay and doesn't swallow subsequent key presses. | CLI |
+| ✅ | 7.4.2.3 | Polish `internal/tui/feed.go` and `internal/tui/explorer.go` -- help bar consistency: Ensure both views have a consistent help bar at the bottom. Feed view: `Tab=views | q=quit | ?=help | j/k=scroll`. Explorer view: `Tab=views | q=quit | s=sort | f=filter | b=mark | Space=select | d=delete | Enter=detail`. Detail view: `Esc=back | j/k=scroll`. The help bar should always show the keybindings relevant to the current view. | CLI |
+| ✅ | 7.4.2.4 | Polish all TUI views -- overall consistency pass: Verify severity colors are consistent across feed, explorer, and detail views. Verify live domain highlighting (green) appears in all three views. Verify bookmark star appears in explorer and detail views. Verify the status bar width fills the terminal. Test with narrow terminals (80 cols) and wide terminals (200+ cols) to ensure layout degrades gracefully. | CLI |
+| ✅ | 7.4.2.5 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/... && go test ./internal/tui/...` passes clean. | CLI |
 
 ---
 
@@ -1027,6 +1027,6 @@ See `.project/changelog.md` for detailed version history.
 ---
 
 *Last updated: 2026-02-24*
-*Current Phase: Phase 7.3 -- Enhancement Integration (pending)*
+*Current Phase: Phase 7.4 -- Enhancement Polish (pending)*
 *Previous Milestone: v0.5.0 Feature Complete -- README, Go doc comments, CLI help text, changelog finalized*
 *Next Milestone: v0.6.0 Enhancement Complete -- enrichment pipeline, TUI overhaul, backtrack mode, batch delete, bookmarks*

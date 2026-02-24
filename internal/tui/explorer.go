@@ -34,6 +34,7 @@ type ExplorerModel struct {
 	height        int
 	ready         bool
 	selected      map[int]bool
+	keepSelection bool   // preserve selection across the next reload (e.g. sort)
 	confirmAction string // empty, "delete-single", "delete-batch", "clear-all"
 	confirmDomain string // domain for single delete confirmation
 }
@@ -109,9 +110,27 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		return m, nil
 
 	case HitsLoadedMsg:
-		m.hits = msg.Hits
+		if m.keepSelection {
+			// Remap selection by domain identity across reloads (e.g. sort change).
+			oldDomains := make(map[string]bool, len(m.selected))
+			for idx := range m.selected {
+				if idx < len(m.hits) {
+					oldDomains[m.hits[idx].Domain] = true
+				}
+			}
+			m.hits = msg.Hits
+			m.selected = make(map[int]bool)
+			for i, h := range m.hits {
+				if oldDomains[h.Domain] {
+					m.selected[i] = true
+				}
+			}
+			m.keepSelection = false
+		} else {
+			m.hits = msg.Hits
+			m.selected = make(map[int]bool)
+		}
 		m.loading = false
-		m.selected = make(map[int]bool)
 		m.table.SetRows(m.hitsToRows())
 		return m, nil
 
@@ -149,6 +168,7 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 			}
 			m.filter.SortDir = m.sortDir
 			m.loading = true
+			m.keepSelection = true
 			return m, m.loadHitsCmd()
 
 		case msg.String() == "enter":
@@ -228,12 +248,13 @@ func (m ExplorerModel) handleConfirm(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		action := m.confirmAction
+		domainName := m.confirmDomain
 		m.confirmAction = ""
 		m.confirmDomain = ""
 
 		switch action {
 		case "delete-single":
-			return m, m.deleteSingleCmd(m.confirmDomain)
+			return m, m.deleteSingleCmd(domainName)
 		case "delete-batch":
 			return m, m.deleteBatchCmd()
 		case "clear-all":
@@ -344,15 +365,16 @@ func (m ExplorerModel) renderFilterBar() string {
 }
 
 func (m ExplorerModel) renderHelpBar() string {
-	help := StyleHelpKey.Render("s") + StyleHelpDesc.Render(" sort") + "  " +
-		StyleHelpKey.Render("f") + StyleHelpDesc.Render(" filter") + "  " +
-		StyleHelpKey.Render("/") + StyleHelpDesc.Render(" search") + "  " +
-		StyleHelpKey.Render("enter") + StyleHelpDesc.Render(" detail") + "  " +
-		StyleHelpKey.Render("r") + StyleHelpDesc.Render(" refresh") + "  " +
-		StyleHelpKey.Render("space") + StyleHelpDesc.Render(" select") + "  " +
-		StyleHelpKey.Render("d/D") + StyleHelpDesc.Render(" delete") + "  " +
-		StyleHelpKey.Render("tab") + StyleHelpDesc.Render(" switch view")
-	return StyleStatusBar.Width(m.width).Render(help)
+	sep := StyleHelpDesc.Render(" | ")
+	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
+		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + sep +
+		StyleHelpKey.Render("s") + StyleHelpDesc.Render("=sort") + sep +
+		StyleHelpKey.Render("f") + StyleHelpDesc.Render("=filter") + sep +
+		StyleHelpKey.Render("b") + StyleHelpDesc.Render("=mark") + sep +
+		StyleHelpKey.Render("Space") + StyleHelpDesc.Render("=select") + sep +
+		StyleHelpKey.Render("d") + StyleHelpDesc.Render("=delete") + sep +
+		StyleHelpKey.Render("Enter") + StyleHelpDesc.Render("=detail")
+	return StyleStatusBar.Width(m.width).Render(" " + help)
 }
 
 func (m ExplorerModel) hitsToRows() []table.Row {

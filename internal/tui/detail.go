@@ -81,11 +81,16 @@ func (m DetailModel) View() string {
 		return "Initializing detail view..."
 	}
 
-	title := StyleTitle.Render(fmt.Sprintf("Hit Detail: %s", m.hit.Domain))
+	domainLabel := m.hit.Domain
+	if m.hit.Bookmarked {
+		domainLabel = StyleBookmarked.Render("*") + " " + domainLabel
+	}
+	title := StyleTitle.Render(fmt.Sprintf("Hit Detail: %s", domainLabel))
 	header := StyleHeader.Width(m.width).Render(title)
+	sep := StyleHelpDesc.Render(" | ")
 	help := StyleStatusBar.Width(m.width).Render(
-		StyleHelpKey.Render("esc") + StyleHelpDesc.Render(" back") + "  " +
-			StyleHelpKey.Render("j/k") + StyleHelpDesc.Render(" scroll"),
+		" " + StyleHelpKey.Render("Esc") + StyleHelpDesc.Render("=back") + sep +
+			StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll"),
 	)
 
 	panel := StyleBorder.Width(m.width - 2).Render(m.viewport.View())
