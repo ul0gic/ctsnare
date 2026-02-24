@@ -14,8 +14,12 @@ import (
 )
 
 // SignedTreeHead represents the response from the CT log get-sth endpoint.
+// It reports the current size of the log tree and when it was last updated.
 type SignedTreeHead struct {
-	TreeSize  int64 `json:"tree_size"`
+	// TreeSize is the total number of entries in the CT log.
+	TreeSize int64 `json:"tree_size"`
+
+	// Timestamp is the Unix millisecond timestamp when this tree head was signed.
 	Timestamp int64 `json:"timestamp"`
 }
 

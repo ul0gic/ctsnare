@@ -28,9 +28,17 @@ type ShowDetailMsg struct {
 }
 
 // PollStats contains aggregate statistics from all pollers for TUI display.
+// It is computed by bridging and summing per-log poller.PollStats values.
 type PollStats struct {
+	// CertsScanned is the total number of certificate entries processed across all logs.
 	CertsScanned int64
-	HitsFound    int64
-	CertsPerSec  float64
-	ActiveLogs   int
+
+	// HitsFound is the total number of domains that scored above zero and were stored.
+	HitsFound int64
+
+	// CertsPerSec is the average processing rate since the watch command started.
+	CertsPerSec float64
+
+	// ActiveLogs is the number of CT log pollers currently running.
+	ActiveLogs int
 }

@@ -13,22 +13,53 @@ import (
 
 // CTLogConfig defines the URL and human-readable name for a single CT log.
 type CTLogConfig struct {
-	URL  string `toml:"url"`
+	// URL is the base URL of the CT log, without a trailing slash.
+	// Example: "https://ct.googleapis.com/logs/us1/argon2025h1"
+	URL string `toml:"url"`
+
+	// Name is the human-readable label shown in log output and the TUI stats bar.
 	Name string `toml:"name"`
 }
 
 // Config holds all configurable values for ctsnare.
+// All fields have sensible defaults — use DefaultConfig to get a ready-to-use Config
+// without a config file. Fields from the TOML file override defaults; CLI flags
+// override both.
 type Config struct {
-	CTLogs         []CTLogConfig             `toml:"ct_logs"`
-	DefaultProfile string                    `toml:"default_profile"`
-	BatchSize      int                       `toml:"batch_size"`
-	PollInterval   time.Duration             `toml:"poll_interval"`
-	DBPath         string                    `toml:"db_path"`
+	// CTLogs is the list of Certificate Transparency logs to poll.
+	// Defaults to Google Argon 2025h1, Argon 2025h2, and Xenon 2025h1.
+	CTLogs []CTLogConfig `toml:"ct_logs"`
+
+	// DefaultProfile is the keyword profile to use when --profile is not specified.
+	// Defaults to "all" (combined crypto + phishing keywords).
+	DefaultProfile string `toml:"default_profile"`
+
+	// BatchSize is the number of CT log entries to fetch per poll request per log.
+	// Larger values increase throughput at the cost of memory. Default: 256.
+	BatchSize int `toml:"batch_size"`
+
+	// PollInterval is how long to wait between consecutive polls of each log.
+	// Default: 5 seconds. Set lower for near-real-time monitoring.
+	PollInterval time.Duration `toml:"poll_interval"`
+
+	// DBPath is the filesystem path to the SQLite database file.
+	// Parent directories are created automatically. Defaults to the XDG-compliant path:
+	// ~/.local/share/ctsnare/ctsnare.db (or $XDG_DATA_HOME/ctsnare/ctsnare.db).
+	DBPath string `toml:"db_path"`
+
+	// CustomProfiles is a map of user-defined profiles loaded from the TOML config.
+	// Keys are profile names; values are Profile definitions.
+	// A profile can extend a built-in by setting Description to "extends:<name>".
 	CustomProfiles map[string]domain.Profile `toml:"custom_profiles"`
-	SkipSuffixes   []string                  `toml:"skip_suffixes"`
+
+	// SkipSuffixes is the list of domain suffixes to exclude from scoring.
+	// Domains matching any suffix are skipped before keyword matching, preventing
+	// infrastructure platforms (CDNs, cloud hosts) from flooding results.
+	SkipSuffixes []string `toml:"skip_suffixes"`
 }
 
 // DefaultConfig returns a Config with sensible production defaults.
+// The returned config is ready to use without a config file.
 func DefaultConfig() *Config {
 	return &Config{
 		CTLogs: []CTLogConfig{

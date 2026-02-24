@@ -10,12 +10,23 @@ import (
 )
 
 // PollStats tracks per-log polling progress and throughput.
+// One PollStats value is emitted per CT log after each batch of entries is processed.
 type PollStats struct {
+	// CertsScanned is the total number of certificate entries processed by this poller
+	// since it started.
 	CertsScanned int64
-	HitsFound    int64
+
+	// HitsFound is the number of domains that scored above zero and were stored.
+	HitsFound int64
+
+	// CurrentIndex is the current position in the CT log tree (next entry to fetch).
 	CurrentIndex int64
-	TreeSize     int64
-	LogName      string
+
+	// TreeSize is the most recently observed tree size from the CT log get-sth endpoint.
+	TreeSize int64
+
+	// LogName is the human-readable name of the CT log this poller monitors.
+	LogName string
 }
 
 // Poller continuously polls a single CT log, scoring domains and storing hits.

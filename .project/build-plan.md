@@ -72,6 +72,7 @@
 | Phase 3 | Sequential | No | Lead (CLI) | No | -- |
 | Phase 4 | PARALLEL | Yes | QA + SEC + OPS | Partial | Yes -- Merge Gate 2 |
 | Phase 5 | Sequential | No | Lead (BE/CLI) | No | -- |
+| Phase 6 | Sequential | No | DOC | No | -- |
 
 ---
 
@@ -104,6 +105,7 @@
 | During Phase 2 -- CLI agent | `go build ./internal/tui/... ./internal/cmd/... ./cmd/ctsnare/... && go vet ./internal/tui/... ./internal/cmd/... ./cmd/ctsnare/... && go test ./internal/tui/... ./internal/cmd/...` | CLI in worktree |
 | During Phase 4 -- QA agent | `go test -v -count=1 ./...` | QA in worktree |
 | During Phase 4 -- OPS agent | `golangci-lint run ./... && go build -o ctsnare ./cmd/ctsnare` | OPS in worktree |
+| During Phase 6 -- DOC agent | `make check` (full build + vet + lint + test after each doc comment batch). Also `go doc ./internal/<pkg>/` to verify doc comment rendering. | DOC on main |
 | At merge gates | `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` | Lead session on merged main |
 | Before release | `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -race -count=1 ./...` | Lead session |
 
@@ -135,9 +137,10 @@ Phase 2: Core Engine         [████████████████�
 Phase 3: Integration         [████████████████████] 100%  ✅
 Phase 4: Hardening           [████████████████████] 100%  ✅
   🔀 Merge Gate 2            [████████████████████] 100%  ✅
-Phase 5: Polish & Release    [██████░░░░░░░░░░░░░░]  33%  🔄
+Phase 5: Polish & Release    [████████████████████] 100%  ✅
+Phase 6: Documentation       [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
 ─────────────────────────────────────────────────────────────
-Overall Progress             [██████████████████░░]  92%
+Overall Progress             [█████████████████░░░]  85%
 ```
 
 | Phase | Tasks | Completed | Blocked | Deferred | Progress | Agents |
@@ -148,8 +151,9 @@ Overall Progress             [████████████████�
 | Phase 3: Integration | 10 | 10 | 0 | 0 | 100% | CLI |
 | Phase 4: Hardening | 15 | 15 | 0 | 0 | 100% | QA, SEC, OPS |
 | Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
-| Phase 5: Polish & Release | 6 | 3 | 0 | 3 | 50% | BE, CLI, DOC |
-| **Total** | **76** | **70** | **0** | **0** | **92%** | |
+| Phase 5: Polish & Release | 3 | 3 | 0 | 0 | 100% | BE, DOC |
+| Phase 6: Documentation | 13 | 0 | 0 | 0 | 0% | DOC |
+| **Total** | **86** | **73** | **0** | **0** | **85%** | |
 
 ---
 
@@ -486,12 +490,12 @@ Overall Progress             [████████████████�
 
 ## Phase 5: Polish & Release Preparation
 
-> Sequential. Final polish, documentation, and release prep.
+> Sequential. Security remediation and CLAUDE.md finalization.
 > Depends on: Merge Gate 2 (must pass clean) + critical security findings addressed
 >
-> **Risk: LOW** -- Polish and documentation. Core functionality is complete and tested.
+> **Risk: LOW** -- Security fixes and internal documentation. Core functionality is complete and tested.
 
-### File Ownership: Lead session (BE/CLI) owns all files.
+### File Ownership: Lead session (BE) owns all files.
 
 ### 5.1 Security Remediation
 
@@ -500,14 +504,70 @@ Overall Progress             [████████████████�
 | ✅ | 5.1.1 | Address all CRITICAL and HIGH findings from the Phase 4 security audit. Implement fixes as described in the issue files. Mark issues as resolved. Run full test suite after each fix. | BE |
 | ✅ | 5.1.2 | **BUILD CHECK** -- `make check` passes clean after all security fixes. | BE |
 
-### 5.2 Documentation & Final Polish
+### 5.2 Internal Documentation
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
 | ✅ | 5.2.1 | Update `/.claude/CLAUDE.md` with final project structure, build commands, and any new conventions established during development. Fill in all placeholder sections. | DOC |
-| 🔄 | 5.2.2 | Create `README.md` at project root: project name + one-liner, installation instructions (go install + binary download), quick start (ctsnare watch, ctsnare query), all subcommands with examples, configuration section (TOML config file location, all configurable options with defaults), built-in profiles list, architecture overview (data flow diagram from PRD), development section (make dev, make test, make lint), license. | DOC |
-| ⬜ | 5.2.3 | Add Go doc comments to all exported functions and types across all packages. Every exported symbol in `internal/domain/`, `internal/config/`, `internal/storage/`, `internal/scoring/`, `internal/profile/`, `internal/poller/`, `internal/tui/`, `internal/cmd/` gets a doc comment following Go conventions (starts with the name of the symbol). | DOC |
-| ⬜ | 5.2.4 | Update `.project/changelog.md` with all changes from v0.1.0 (project setup through feature complete). Mark milestone 0.5.0 as Feature Complete with today's date. | DOC |
+
+---
+
+## Phase 6: Documentation
+
+> Sequential. Comprehensive documentation for public release.
+> Depends on: Phase 5 (all tasks complete, build passes clean)
+>
+> This phase produces all user-facing and developer-facing documentation. The documentation-engineer
+> reads the final codebase and produces accurate, current documentation based on what actually exists --
+> not what was planned. Every code example must be verified against the built binary.
+>
+> **Risk: LOW** -- Documentation only. No source code modifications except adding Go doc comments to
+> existing exported symbols. Build must remain green throughout.
+
+### File Ownership: DOC (documentation-engineer) owns all files listed below.
+
+| Agent | Owns (read/write) | Can Read (no write) |
+|-------|-------------------|-------------------|
+| DOC (documentation-engineer) | `README.md`, all `*.go` files (doc comments only), `.project/changelog.md` | All source files |
+
+**OFF LIMITS during this phase:** `go.mod`, `go.sum`, `.golangci.yml`, `.goreleaser.yml`, `Makefile`, `.github/`, `.project/prd.md`, `.project/tech-stack.md`. DOC agent modifies `.go` files ONLY to add or improve doc comments on exported symbols -- no logic changes, no new functions, no refactoring.
+
+### 6.1 README
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 6.1.1 | Create `README.md` at project root. Structure: (1) Project name + one-liner description ("Monitor Certificate Transparency logs for suspicious domains"), (2) Feature highlights (real-time CT polling, scoring engine, TUI dashboard, CLI query, SQLite storage, zero-config single binary), (3) Installation section with `go install github.com/ul0gic/ctsnare@latest` and binary download from GitHub Releases, (4) Quick Start section showing `ctsnare watch` and `ctsnare query` with expected terminal output. Keep this task focused on the top half of the README -- hero section through quick start. | DOC |
+| ✅ | 6.1.2 | Continue `README.md` with full subcommand reference: `ctsnare watch` (all flags: --profile, --session, --headless, --batch-size, --poll-interval, with usage examples), `ctsnare query` (all flags: --keyword, --score-min, --since, --tld, --session, --severity, --format, --limit, with composable flag examples), `ctsnare db` (stats, clear, export, path subcommands with examples), `ctsnare profiles` (list, show subcommands with example output). Every command example must be copy-pasteable and show realistic output. | DOC |
+| ✅ | 6.1.3 | Continue `README.md` with: (1) Configuration section -- TOML config file location (`~/.config/ctsnare/config.toml`), all configurable options with defaults and example config file, custom profile definition example, (2) Built-in Profiles section -- table of crypto, phishing, all profiles with keyword counts and descriptions, (3) Scoring section -- explain the scoring heuristics (keyword match, TLD, length, hyphens, digits, multi-keyword bonus) and severity thresholds (HIGH >= 6, MED 4-5, LOW 1-3). | DOC |
+| ✅ | 6.1.4 | Continue `README.md` with: (1) Architecture section -- data flow diagram (ASCII art or Mermaid: CT Logs -> Pollers -> Scoring -> SQLite + TUI), key design decisions (decoupled polling/display, WAL mode, pure Go SQLite), (2) Development section -- prerequisites (Go 1.26, golangci-lint), clone + build + test commands, `make check` for full verification, project directory layout, (3) License section (MIT or as appropriate). | DOC |
+| ✅ | 6.1.5 | **BUILD CHECK** -- `make check` passes clean. Verify `README.md` renders correctly: all code blocks have language tags, all links are valid, no broken markdown formatting. Run `./ctsnare --help` and verify README subcommand documentation matches actual CLI output. | DOC |
+
+### 6.2 Go Doc Comments
+
+> Go convention: every exported symbol gets a doc comment starting with the symbol name.
+> Run `go doc ./internal/...` after each file to verify comments render correctly.
+> Do NOT change any function signatures, logic, or behavior -- doc comments only.
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 6.2.1 | Add doc comments to all exported symbols in `internal/domain/`: `types.go` (Hit, Severity, SeverityHigh, SeverityMed, SeverityLow, CTLogEntry, ScoredDomain), `interfaces.go` (Scorer, Store, ProfileLoader -- document each interface method), `query.go` (QueryFilter -- document each field's purpose and expected values, DBStats, KeywordCount), `profile.go` (Profile -- document each field). Verify with `go doc ./internal/domain/`. | DOC |
+| ✅ | 6.2.2 | Add doc comments to all exported symbols in `internal/config/config.go` (Config, CTLogConfig, Load, DefaultConfig, and any other exported functions/types), `internal/profile/profile.go` (Manager, NewManager, LoadProfile, ListProfiles), `internal/profile/builtin.go` (CryptoProfile, PhishingProfile, AllProfile, and any exported vars/consts). Verify with `go doc ./internal/config/ && go doc ./internal/profile/`. | DOC |
+| ✅ | 6.2.3 | Add doc comments to all exported symbols in `internal/scoring/scorer.go` (Engine, NewEngine, Score method), `internal/scoring/heuristics.go` (any exported heuristic functions), `internal/storage/db.go` (DB, NewDB, Close), `internal/storage/hits.go` (UpsertHit, QueryHits), `internal/storage/sessions.go` (ClearAll, ClearSession, Stats), `internal/storage/export.go` (ExportJSONL, ExportCSV), `internal/storage/schema.go` (any exported schema constants). Verify with `go doc ./internal/scoring/ && go doc ./internal/storage/`. | DOC |
+| ✅ | 6.2.4 | Add doc comments to all exported symbols in `internal/poller/ctlog.go` (CTLogClient, NewCTLogClient, GetSTH, GetEntries, SignedTreeHead), `internal/poller/parser.go` (ParseCertDomains), `internal/poller/poller.go` (Poller, NewPoller, Run, PollStats), `internal/poller/manager.go` (Manager, NewManager, Start, Stop). Add doc comments to all exported symbols in `internal/tui/` (AppModel, NewApp, FeedModel, ExplorerModel, DetailModel, FilterModel, all exported message types in messages.go, all exported style vars in styles.go, KeyMap in keys.go). Add doc comments to exported functions in `internal/cmd/` (Execute, and any exported output formatting functions in output.go). Verify with `go doc ./internal/poller/ && go doc ./internal/tui/ && go doc ./internal/cmd/`. | DOC |
+| ✅ | 6.2.5 | **BUILD CHECK** -- `make check` passes clean after all doc comment additions. Run `go doc ./internal/domain/ && go doc ./internal/config/ && go doc ./internal/profile/ && go doc ./internal/scoring/ && go doc ./internal/storage/ && go doc ./internal/poller/ && go doc ./internal/tui/ && go doc ./internal/cmd/` and verify all exported symbols have doc comments with no warnings. | DOC |
+
+### 6.3 Help Text & CLI Polish
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 6.3.1 | Review and improve all Cobra command help text. For each command (`root`, `watch`, `query`, `db`, `db stats`, `db clear`, `db export`, `db path`, `profiles`, `profiles list`, `profiles show`): verify `Short` is under 50 characters, verify `Long` includes a usage example, verify flag descriptions are clear and include default values where applicable. Run `./ctsnare --help`, `./ctsnare watch --help`, `./ctsnare query --help`, `./ctsnare db --help`, `./ctsnare profiles --help` and verify output is consistent and helpful. Fix any unclear or missing descriptions. | DOC |
+
+### 6.4 Changelog & Release Milestone
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 6.4.1 | Update `.project/changelog.md`: consolidate all [Unreleased] sections into proper versioned entries. Add Phase 6 documentation work. Mark milestone `0.5.0` as Feature Complete with today's date in the Milestones table. Ensure the changelog follows Keep a Changelog format consistently -- every entry categorized (Added, Changed, Fixed, Security), reverse chronological order, version headers link to git tags. | DOC |
+| ⬜ | 6.4.2 | **BUILD CHECK** -- Final full verification: `make check` passes clean. Run `./ctsnare --help` and verify all commands are documented. Run `go doc ./...` and verify all exported symbols have doc comments. Verify `README.md` exists and is well-formed. Verify `.project/changelog.md` has 0.5.0 milestone entry. This is the final quality gate before the project is considered feature complete. | DOC |
 
 ---
 
@@ -550,9 +610,17 @@ Phase 4: Hardening (PARALLEL, worktrees)
 |
 |================ MERGE GATE 2 (Lead merges, full build) ====================
 |
-Phase 5: Polish & Release (Sequential, BE/CLI/DOC)
+Phase 5: Polish & Release (Sequential, BE/DOC)
 |-- 5.1 Security Remediation
-|-- 5.2 Documentation & Final Polish
+|-- 5.2 Internal Documentation (CLAUDE.md)
+|
+|============== All Phase 5 tasks complete, build passes clean ===============
+|
+Phase 6: Documentation (Sequential, DOC)
+|-- 6.1 README ---------> 6.2 Go Doc Comments ---------> 6.3 Help Text & CLI Polish
+|                                                                     |
+|                                                                     v
+|                                                         6.4 Changelog & Release Milestone
 ```
 
 ---
@@ -587,5 +655,5 @@ See `.project/changelog.md` for detailed version history.
 ---
 
 *Last updated: 2026-02-24*
-*Current Phase: Merge Gate 1 COMPLETE -- ready for Phase 3*
-*Next Milestone: Phase 3 Integration (sequential, CLI agent)*
+*Current Phase: Phase 5 COMPLETE -- ready for Phase 6*
+*Next Milestone: Phase 6 Documentation (sequential, DOC agent) -- then v0.5.0 Feature Complete*
