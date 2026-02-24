@@ -48,17 +48,33 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	// Header row.
+	// Header row. New enrichment and bookmark columns are appended at the end
+	// for backward compatibility with parsers that use column names.
 	header := []string{
 		"domain", "score", "severity", "keywords", "issuer", "issuer_cn",
 		"san_domains", "cert_not_before", "ct_log", "profile", "session",
 		"created_at", "updated_at",
+		"is_live", "resolved_ips", "hosting_provider", "http_status",
+		"live_checked_at", "bookmarked",
 	}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("writing CSV header: %w", err)
 	}
 
 	for _, hit := range hits {
+		isLive := "false"
+		if hit.IsLive {
+			isLive = "true"
+		}
+		bookmarked := "false"
+		if hit.Bookmarked {
+			bookmarked = "true"
+		}
+		liveCheckedAt := ""
+		if !hit.LiveCheckedAt.IsZero() {
+			liveCheckedAt = hit.LiveCheckedAt.UTC().Format("2006-01-02T15:04:05Z")
+		}
+
 		record := []string{
 			hit.Domain,
 			strconv.Itoa(hit.Score),
@@ -73,6 +89,12 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 			hit.Session,
 			hit.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			hit.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			isLive,
+			strings.Join(hit.ResolvedIPs, ";"),
+			hit.HostingProvider,
+			strconv.Itoa(hit.HTTPStatus),
+			liveCheckedAt,
+			bookmarked,
 		}
 		if err := cw.Write(record); err != nil {
 			return fmt.Errorf("writing CSV row: %w", err)

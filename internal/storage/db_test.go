@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -957,4 +958,138 @@ func TestSanitizeSortColumn_NewColumns(t *testing.T) {
 		result := sanitizeSortColumn(col)
 		assert.Equal(t, col, result, "new column %q should be allowed", col)
 	}
+}
+
+// --- Phase 7.2 tests: export enrichment roundtrip ---
+
+func TestExportJSONL_EnrichmentFields(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("enriched.com", 6, domain.SeverityHigh)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	// Add enrichment data.
+	ips := []string{"104.16.0.1", "104.16.0.2"}
+	require.NoError(t, db.UpdateEnrichment(ctx, "enriched.com", true, ips, "cloudflare", 200))
+
+	// Bookmark it.
+	require.NoError(t, db.SetBookmark(ctx, "enriched.com", true))
+
+	var buf bytes.Buffer
+	err := db.ExportJSONL(ctx, &buf, domain.QueryFilter{})
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 1)
+
+	var exported domain.Hit
+	err = json.Unmarshal([]byte(lines[0]), &exported)
+	require.NoError(t, err)
+
+	assert.Equal(t, "enriched.com", exported.Domain)
+	assert.True(t, exported.IsLive, "JSONL should include is_live=true")
+	assert.Equal(t, ips, exported.ResolvedIPs, "JSONL should include resolved IPs")
+	assert.Equal(t, "cloudflare", exported.HostingProvider, "JSONL should include hosting provider")
+	assert.Equal(t, 200, exported.HTTPStatus, "JSONL should include http status")
+	assert.False(t, exported.LiveCheckedAt.IsZero(), "JSONL should include live_checked_at")
+	assert.True(t, exported.Bookmarked, "JSONL should include bookmarked=true")
+}
+
+func TestExportCSV_EnrichmentFields(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("enriched-csv.com", 6, domain.SeverityHigh)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	ips := []string{"104.16.0.1", "2606:4700::1"}
+	require.NoError(t, db.UpdateEnrichment(ctx, "enriched-csv.com", true, ips, "cloudflare", 200))
+	require.NoError(t, db.SetBookmark(ctx, "enriched-csv.com", true))
+
+	var buf bytes.Buffer
+	err := db.ExportCSV(ctx, &buf, domain.QueryFilter{})
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 2, "should have header + 1 data row")
+
+	header := lines[0]
+	assert.Contains(t, header, "is_live")
+	assert.Contains(t, header, "resolved_ips")
+	assert.Contains(t, header, "hosting_provider")
+	assert.Contains(t, header, "http_status")
+	assert.Contains(t, header, "live_checked_at")
+	assert.Contains(t, header, "bookmarked")
+
+	data := lines[1]
+	assert.Contains(t, data, "true", "CSV should contain is_live=true")
+	assert.Contains(t, data, "104.16.0.1;2606:4700::1", "CSV should contain semicolon-joined IPs")
+	assert.Contains(t, data, "cloudflare", "CSV should contain hosting provider")
+	assert.Contains(t, data, "200", "CSV should contain HTTP status")
+}
+
+func TestExportJSONL_ZeroEnrichmentFields(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert a hit with no enrichment data (zero values).
+	h := testHit("plain.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	var buf bytes.Buffer
+	err := db.ExportJSONL(ctx, &buf, domain.QueryFilter{})
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 1)
+
+	var exported domain.Hit
+	err = json.Unmarshal([]byte(lines[0]), &exported)
+	require.NoError(t, err)
+
+	assert.Equal(t, "plain.com", exported.Domain)
+	assert.False(t, exported.IsLive, "zero-value enrichment: is_live should be false")
+	assert.Empty(t, exported.ResolvedIPs, "zero-value enrichment: resolved_ips should be empty")
+	assert.Empty(t, exported.HostingProvider, "zero-value enrichment: hosting_provider should be empty")
+	assert.Equal(t, 0, exported.HTTPStatus, "zero-value enrichment: http_status should be 0")
+	assert.True(t, exported.LiveCheckedAt.IsZero(), "zero-value enrichment: live_checked_at should be zero")
+	assert.False(t, exported.Bookmarked, "zero-value enrichment: bookmarked should be false")
+}
+
+func TestExportCSV_ZeroEnrichmentFields(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("plain-csv.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	var buf bytes.Buffer
+	err := db.ExportCSV(ctx, &buf, domain.QueryFilter{})
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 2)
+
+	// Parse the CSV to verify the new columns have zero values.
+	r := csv.NewReader(strings.NewReader(buf.String()))
+	records, err := r.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2, "header + 1 row")
+
+	header := records[0]
+	row := records[1]
+
+	// Find column indexes.
+	colIdx := make(map[string]int)
+	for i, name := range header {
+		colIdx[name] = i
+	}
+
+	assert.Equal(t, "false", row[colIdx["is_live"]], "zero-value is_live should be 'false'")
+	assert.Empty(t, row[colIdx["resolved_ips"]], "zero-value resolved_ips should be empty")
+	assert.Empty(t, row[colIdx["hosting_provider"]], "zero-value hosting_provider should be empty")
+	assert.Equal(t, "0", row[colIdx["http_status"]], "zero-value http_status should be '0'")
+	assert.Empty(t, row[colIdx["live_checked_at"]], "zero-value live_checked_at should be empty")
+	assert.Equal(t, "false", row[colIdx["bookmarked"]], "zero-value bookmarked should be 'false'")
 }
