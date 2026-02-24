@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/ul0gic/ctsnare/internal/config"
+	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/storage"
 )
 
 var dbCmd = &cobra.Command{
@@ -16,14 +21,12 @@ var dbCmd = &cobra.Command{
 }
 
 // db stats subcommand
-var (
-	dbStatsCmd = &cobra.Command{
-		Use:   "stats",
-		Short: "Show database statistics",
-		Long:  `Display aggregate statistics about stored hits: total count, by severity, top keywords, and date range.`,
-		RunE:  runDBStats,
-	}
-)
+var dbStatsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "Show database statistics",
+	Long:  `Display aggregate statistics about stored hits: total count, by severity, top keywords, and date range.`,
+	RunE:  runDBStats,
+}
 
 // db clear subcommand
 var (
@@ -74,32 +77,118 @@ func init() {
 	rootCmd.AddCommand(dbCmd)
 }
 
-// runDBStats is the placeholder RunE for the db stats command.
-// Real storage wiring happens in Phase 3.
-func runDBStats(_ *cobra.Command, _ []string) error {
-	return fmt.Errorf("db stats not yet wired -- integration happens in Phase 3")
+// openDB loads config and opens the database, returning a cleanup function.
+func openDB() (*storage.DB, error) {
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+	config.MergeFlags(cfg, dbPath, 0, 0)
+
+	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("database not found at %s — run 'ctsnare watch' first to start collecting hits", cfg.DBPath)
+	}
+
+	store, err := storage.NewDB(cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+	return store, nil
 }
 
-// runDBClear is the placeholder RunE for the db clear command.
-// Real storage wiring happens in Phase 3.
+// runDBStats displays aggregate statistics about stored hits.
+func runDBStats(_ *cobra.Command, _ []string) error {
+	store, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		return fmt.Errorf("getting stats: %w", err)
+	}
+
+	return FormatStats(stats, os.Stdout)
+}
+
+// runDBClear deletes hits from the database.
 func runDBClear(_ *cobra.Command, _ []string) error {
 	if !dbClearConfirm {
 		return fmt.Errorf("use --confirm to confirm deletion")
 	}
-	return fmt.Errorf("db clear not yet wired -- integration happens in Phase 3")
+
+	store, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	if dbClearSession != "" {
+		if err := store.ClearSession(ctx, dbClearSession); err != nil {
+			return fmt.Errorf("clearing session %q: %w", dbClearSession, err)
+		}
+		fmt.Fprintf(os.Stderr, "Cleared all hits for session %q.\n", dbClearSession)
+		return nil
+	}
+
+	if err := store.ClearAll(ctx); err != nil {
+		return fmt.Errorf("clearing database: %w", err)
+	}
+	fmt.Fprintln(os.Stderr, "All hits cleared from database.")
+	return nil
 }
 
-// runDBExport is the placeholder RunE for the db export command.
-// Real storage wiring happens in Phase 3.
+// runDBExport exports hits to JSONL or CSV.
 func runDBExport(_ *cobra.Command, _ []string) error {
-	return fmt.Errorf("db export not yet wired -- integration happens in Phase 3")
+	store, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	// Determine output destination.
+	var w *os.File
+	if dbExportOutput != "" {
+		w, err = os.Create(dbExportOutput)
+		if err != nil {
+			return fmt.Errorf("creating output file: %w", err)
+		}
+		defer w.Close()
+	} else {
+		w = os.Stdout
+	}
+
+	ctx := context.Background()
+	filter := domain.QueryFilter{}
+
+	switch dbExportFormat {
+	case "csv":
+		if err := store.ExportCSV(ctx, w, filter); err != nil {
+			return fmt.Errorf("exporting CSV: %w", err)
+		}
+	default:
+		if err := store.ExportJSONL(ctx, w, filter); err != nil {
+			return fmt.Errorf("exporting JSONL: %w", err)
+		}
+	}
+
+	if dbExportOutput != "" {
+		fmt.Fprintf(os.Stderr, "Exported to %s (%s format).\n", dbExportOutput, dbExportFormat)
+	}
+	return nil
 }
 
-// runDBPath is the placeholder RunE for the db path command.
-// Real storage wiring happens in Phase 3.
+// runDBPath prints the configured database file path.
 func runDBPath(_ *cobra.Command, _ []string) error {
-	// Phase 3 will read from config to determine the DB path.
-	// For now, show the default XDG-compliant path.
-	fmt.Println("~/.local/share/ctsnare/ctsnare.db")
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	config.MergeFlags(cfg, dbPath, 0, 0)
+
+	fmt.Println(cfg.DBPath)
 	return nil
 }

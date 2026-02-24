@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/ul0gic/ctsnare/internal/config"
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/profile"
 )
 
 var profilesCmd = &cobra.Command{
@@ -29,39 +31,56 @@ func init() {
 	rootCmd.AddCommand(profilesCmd)
 }
 
-// runProfilesList is the placeholder RunE for listing profiles.
-// Real profile manager wiring happens in Phase 3.
+// newProfileManager creates a profile.Manager wired with custom profiles from config.
+func newProfileManager() (*profile.Manager, error) {
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+	return profile.NewManager(cfg.CustomProfiles), nil
+}
+
+// runProfilesList lists all available profiles with their descriptions.
 func runProfilesList(_ *cobra.Command, _ []string) error {
-	// Phase 3 will wire: config loading, profile manager creation, list profiles.
-	// For now, show the known built-in profile names.
-	builtins := []struct {
-		name string
-		desc string
-	}{
-		{"all", "Combined crypto + phishing keywords and TLDs"},
-		{"crypto", "Cryptocurrency, DeFi, and exchange-related keywords"},
-		{"phishing", "Login, credential theft, and brand impersonation keywords"},
+	mgr, err := newProfileManager()
+	if err != nil {
+		return err
 	}
 
+	names := mgr.ListProfiles()
 	fmt.Println("Available Profiles:")
 	fmt.Println()
-	for _, p := range builtins {
-		fmt.Printf("  %-12s %s\n", p.name, p.desc)
+	for _, name := range names {
+		p, loadErr := mgr.LoadProfile(name)
+		if loadErr != nil {
+			continue
+		}
+		desc := p.Description
+		if desc == "" {
+			desc = fmt.Sprintf("%d keywords", len(p.Keywords))
+		}
+		fmt.Printf("  %-12s %s\n", name, desc)
 	}
 	return nil
 }
 
-// runProfilesShow is the placeholder RunE for showing profile details.
-// Real profile manager wiring happens in Phase 3.
+// runProfilesShow displays full details for a named profile.
 func runProfilesShow(_ *cobra.Command, args []string) error {
-	name := args[0]
-	// Phase 3 will wire: config loading, profile manager, LoadProfile call.
-	// For now, return an error indicating Phase 3 wiring is needed.
-	return fmt.Errorf("profile %q details not yet available -- integration happens in Phase 3", name)
+	mgr, err := newProfileManager()
+	if err != nil {
+		return err
+	}
+
+	p, err := mgr.LoadProfile(args[0])
+	if err != nil {
+		return err
+	}
+
+	PrintProfileDetail(p)
+	return nil
 }
 
 // PrintProfileDetail prints the full details of a profile to stdout.
-// Used by the profiles show command after Phase 3 wiring.
 func PrintProfileDetail(p *domain.Profile) {
 	fmt.Printf("Profile: %s\n", p.Name)
 	if p.Description != "" {

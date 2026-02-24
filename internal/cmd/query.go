@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/ul0gic/ctsnare/internal/config"
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/storage"
 )
 
 var (
@@ -43,8 +46,25 @@ func init() {
 }
 
 // runQuery opens the database, queries hits with the given filters, and formats output.
-// Phase 3 will replace the placeholder store opening with real config + storage wiring.
 func runQuery(_ *cobra.Command, _ []string) error {
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	config.MergeFlags(cfg, dbPath, 0, 0)
+
+	// Check if the database file exists before attempting to open it.
+	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
+		fmt.Fprintln(os.Stderr, "No database found. Run 'ctsnare watch' first to start collecting hits.")
+		return nil
+	}
+
+	store, err := storage.NewDB(cfg.DBPath)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer store.Close()
+
 	filter := domain.QueryFilter{
 		Keyword:  queryKeyword,
 		ScoreMin: queryScoreMin,
@@ -57,15 +77,15 @@ func runQuery(_ *cobra.Command, _ []string) error {
 		SortDir:  "DESC",
 	}
 
-	// Phase 3 will wire: config loading, storage opening, store.QueryHits(ctx, filter).
-	// For now, the filter is constructed to validate flag parsing and will return early.
-	_ = filter
-	fmt.Fprintln(os.Stderr, "query command not yet wired -- integration happens in Phase 3")
-	return nil
+	hits, err := store.QueryHits(context.Background(), filter)
+	if err != nil {
+		return fmt.Errorf("querying hits: %w", err)
+	}
+
+	return WriteQueryOutput(hits, queryFormat)
 }
 
 // WriteQueryOutput writes hits in the requested format to stdout.
-// Used by the query command RunE after Phase 3 storage wiring.
 func WriteQueryOutput(hits []domain.Hit, format string) error {
 	if len(hits) == 0 {
 		fmt.Fprintln(os.Stderr, "No hits found matching the given filters.")

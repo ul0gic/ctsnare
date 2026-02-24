@@ -7,6 +7,20 @@
 
 ---
 
+## [0.3.0] - 2026-02-24
+
+### Added — CLI (cli-engineer) Phase 3 Integration
+- Watch command wired to real components: config loading, storage, scoring engine, profile manager, poller manager, TUI dashboard with live hit/stats channels, and headless polling mode (internal/cmd/watch.go)
+- Poller-to-TUI stats bridge: aggregates per-log PollStats into TUI PollStats with certs/sec calculation and active log count
+- Query command wired to real storage: config-based DB path, QueryFilter from flags, table/JSON/CSV output, friendly "no database" message (internal/cmd/query.go)
+- DB subcommands wired to real storage: stats reads from SQLite, clear supports --confirm and --session, export writes JSONL/CSV to file or stdout, path reads from config (internal/cmd/db.go)
+- Profiles command wired to real profile manager: list shows all profiles with descriptions, show displays keywords/TLDs/skip suffixes (internal/cmd/profiles.go)
+- Structured logging via slog: JSON handler at Debug level when --verbose, discarded otherwise to keep TUI clean. PersistentPreRunE in root command configures the global logger (internal/cmd/root.go)
+- Signal handling: headless mode uses signal.NotifyContext for SIGINT/SIGTERM, TUI mode cancels context on program exit, both paths drain channels and stop pollers gracefully
+- Integration test suite: 14 tests covering query with filters (keyword, severity, session, score-min, limit, format), db stats/clear/export/path, profiles list/show, and root help (internal/cmd/integration_test.go)
+
+---
+
 ## [Unreleased]
 
 ### Added — BE (backend-engineer) Phase 2 tasks
@@ -80,7 +94,7 @@
 |---------|-----------|------|
 | 1.0.0 | Production Release | TBD |
 | 0.5.0 | Feature Complete | TBD |
-| 0.3.0 | Integration Complete | TBD |
+| 0.3.0 | Integration Complete | 2026-02-24 |
 | 0.2.0 | Core Engine Complete | TBD |
 | 0.1.0 | Foundation Complete | 2026-02-24 |
 

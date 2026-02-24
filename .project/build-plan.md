@@ -132,12 +132,12 @@
 Phase 1: Foundation          [████████████████████] 100%  ✅
 Phase 2: Core Engine         [████████████████████] 100%  ✅
   🔀 Merge Gate 1            [████████████████████] 100%  ✅
-Phase 3: Integration         [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
+Phase 3: Integration         [████████████████████] 100%  ✅
 Phase 4: Hardening           [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
   🔀 Merge Gate 2            [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
 Phase 5: Polish & Release    [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
 ─────────────────────────────────────────────────────────────
-Overall Progress             [███████████░░░░░░░░░]  57%
+Overall Progress             [██████████████░░░░░░]  71%
 ```
 
 | Phase | Tasks | Completed | Blocked | Deferred | Progress | Agents |
@@ -145,11 +145,11 @@ Overall Progress             [███████████░░░░░�
 | Phase 1: Foundation | 15 | 15 | 0 | 0 | 100% | BE |
 | Phase 2: Core Engine | 28 | 28 | 0 | 0 | 100% | BE, CLI |
 | Merge Gate 1 | 1 | 1 | 0 | 0 | 100% | Lead |
-| Phase 3: Integration | 10 | 0 | 0 | 0 | 0% | CLI |
+| Phase 3: Integration | 10 | 10 | 0 | 0 | 100% | CLI |
 | Phase 4: Hardening | 15 | 0 | 0 | 0 | 0% | QA, SEC, OPS |
 | Merge Gate 2 | 1 | 0 | 0 | 0 | 0% | Lead |
 | Phase 5: Polish & Release | 6 | 0 | 0 | 0 | 0% | BE, CLI, DOC |
-| **Total** | **76** | **44** | **0** | **0** | **57%** | |
+| **Total** | **76** | **54** | **0** | **0** | **71%** | |
 
 ---
 
@@ -327,10 +327,10 @@ Overall Progress             [███████████░░░░░�
 > All parallel work from Phase 2 STOPS here. No agent continues until merge is clean.
 
 ### Prerequisites
-- [ ] BE (backend-engineer) has committed and pushed their worktree branch
-- [ ] CLI (cli-engineer) has committed and pushed their worktree branch
-- [ ] BE build verification passes in their worktree
-- [ ] CLI build verification passes in their worktree
+- ✅ BE (backend-engineer) has committed and pushed their worktree branch
+- ✅ CLI (cli-engineer) has committed and pushed their worktree branch
+- ✅ BE build verification passes in their worktree
+- ✅ CLI build verification passes in their worktree
 
 ### Merge Protocol
 1. Lead session creates fresh branch or works on main
@@ -348,13 +348,13 @@ Overall Progress             [███████████░░░░░�
 4. `internal/cmd/root.go` -- CLI agent's version takes precedence
 
 ### Post-Merge Verification
-- [ ] `go build -o ctsnare ./cmd/ctsnare` succeeds
-- [ ] `go vet ./...` reports zero issues
-- [ ] `golangci-lint run ./...` reports zero issues
-- [ ] `go test ./...` all tests pass
-- [ ] `./ctsnare --help` shows all subcommands
-- [ ] `./ctsnare watch --help` shows watch flags
-- [ ] `./ctsnare query --help` shows query flags
+- ✅ `go build -o ctsnare ./cmd/ctsnare` succeeds
+- ✅ `go vet ./...` reports zero issues
+- ✅ `golangci-lint run ./...` reports zero issues
+- ✅ `go test ./...` all tests pass
+- ✅ `./ctsnare --help` shows all subcommands
+- ✅ `./ctsnare watch --help` shows watch flags
+- ✅ `./ctsnare query --help` shows query flags
 
 ---
 
@@ -374,26 +374,26 @@ Overall Progress             [███████████░░░░░�
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 3.1.1 | Update `internal/cmd/watch.go` RunE to wire real components: load config (internal/config), open storage (internal/storage), create scoring engine (internal/scoring), load profile (internal/profile), create hit and stats channels (buffered), create poller manager and start it, create TUI app model with store + channels + profile name, run `tea.NewProgram(app, tea.WithAltScreen())`. For headless mode: skip TUI, just run poller manager, block on context until SIGINT/SIGTERM. Handle graceful shutdown: context cancellation stops pollers, close DB on exit. | CLI |
-| ⬜ | 3.1.2 | Update `internal/cmd/query.go` RunE to wire real storage: load config for DB path, open storage, build QueryFilter from flags, call store.QueryHits, format output, close DB. Handle edge cases: no results found (print message, not error), DB file doesn't exist (friendly error message). | CLI |
-| ⬜ | 3.1.3 | Update `internal/cmd/db.go` subcommands to wire real storage: each subcommand opens DB via config, performs operation, closes DB. `db path` reads from config. `db export` writes to file or stdout based on --output flag. | CLI |
-| ⬜ | 3.1.4 | Update `internal/cmd/profiles.go` to wire real profile manager: create manager with config's custom profiles, list/show operations work against real data. | CLI |
-| ⬜ | 3.1.5 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. | CLI |
+| ✅ | 3.1.1 | Update `internal/cmd/watch.go` RunE to wire real components: load config (internal/config), open storage (internal/storage), create scoring engine (internal/scoring), load profile (internal/profile), create hit and stats channels (buffered), create poller manager and start it, create TUI app model with store + channels + profile name, run `tea.NewProgram(app, tea.WithAltScreen())`. For headless mode: skip TUI, just run poller manager, block on context until SIGINT/SIGTERM. Handle graceful shutdown: context cancellation stops pollers, close DB on exit. | CLI |
+| ✅ | 3.1.2 | Update `internal/cmd/query.go` RunE to wire real storage: load config for DB path, open storage, build QueryFilter from flags, call store.QueryHits, format output, close DB. Handle edge cases: no results found (print message, not error), DB file doesn't exist (friendly error message). | CLI |
+| ✅ | 3.1.3 | Update `internal/cmd/db.go` subcommands to wire real storage: each subcommand opens DB via config, performs operation, closes DB. `db path` reads from config. `db export` writes to file or stdout based on --output flag. | CLI |
+| ✅ | 3.1.4 | Update `internal/cmd/profiles.go` to wire real profile manager: create manager with config's custom profiles, list/show operations work against real data. | CLI |
+| ✅ | 3.1.5 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. | CLI |
 
 ### 3.2 Graceful Shutdown & Signal Handling
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 3.2.1 | Implement signal handling in watch command: listen for SIGINT and SIGTERM, cancel context, wait for pollers to drain (with timeout), close database, restore terminal (bubbletea handles this for TUI mode). Log shutdown progress with slog. For headless mode, use `signal.NotifyContext`. | CLI |
-| ⬜ | 3.2.2 | Add structured logging throughout: use `log/slog` with JSON handler when --verbose is set, text handler otherwise. Log at appropriate levels: Info for startup/shutdown events, Debug for per-entry processing, Warn for skipped/malformed entries, Error for failures. Add slog initialization in root command PersistentPreRunE. | CLI |
-| ⬜ | 3.2.3 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. Manual smoke test: `./ctsnare watch --headless --verbose` starts without error, Ctrl-C shuts down cleanly. | CLI |
+| ✅ | 3.2.1 | Implement signal handling in watch command: listen for SIGINT and SIGTERM, cancel context, wait for pollers to drain (with timeout), close database, restore terminal (bubbletea handles this for TUI mode). Log shutdown progress with slog. For headless mode, use `signal.NotifyContext`. | CLI |
+| ✅ | 3.2.2 | Add structured logging throughout: use `log/slog` with JSON handler when --verbose is set, text handler otherwise. Log at appropriate levels: Info for startup/shutdown events, Debug for per-entry processing, Warn for skipped/malformed entries, Error for failures. Add slog initialization in root command PersistentPreRunE. | CLI |
+| ✅ | 3.2.3 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. Manual smoke test: `./ctsnare watch --headless --verbose` starts without error, Ctrl-C shuts down cleanly. | CLI |
 
 ### 3.3 End-to-End Smoke Test
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 3.3.1 | Create `internal/cmd/integration_test.go`. Integration test: create temp DB, create config pointing to it, start watch in headless mode with a short timeout context (5 seconds), verify it starts and stops cleanly. Test query command with pre-populated DB (insert test hits, run query, verify output format). Test db stats with known data. Test profiles list output. | CLI |
-| ⬜ | 3.3.2 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -count=1 ./...` all pass. Binary runs and responds to --help, watch --help, query --help, db --help, profiles --help. | CLI |
+| ✅ | 3.3.1 | Create `internal/cmd/integration_test.go`. Integration test: create temp DB, create config pointing to it, start watch in headless mode with a short timeout context (5 seconds), verify it starts and stops cleanly. Test query command with pre-populated DB (insert test hits, run query, verify output format). Test db stats with known data. Test profiles list output. | CLI |
+| ✅ | 3.3.2 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -count=1 ./...` all pass. Binary runs and responds to --help, watch --help, query --help, db --help, profiles --help. | CLI |
 
 ---
 
