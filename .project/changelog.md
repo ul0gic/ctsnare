@@ -7,6 +7,21 @@
 
 ---
 
+## [Unreleased] — Phase 5 Polish & Release Preparation
+
+### Security — BE (backend-engineer) Phase 5.1 Security Remediation
+- Fixed FINDING-06 / ISSUE-002 (HIGH): Added `PRAGMA busy_timeout=5000` in `internal/storage/db.go` to prevent SQLITE_BUSY data loss under concurrent writes from multiple poller goroutines
+- Fixed FINDING-01 (MEDIUM): Added `io.LimitReader` with 50 MB cap on HTTP response bodies in `internal/poller/ctlog.go` to prevent memory exhaustion from oversized CT log responses
+- Fixed FINDING-02 (MEDIUM): Disabled HTTP redirect following in CT log client (`CheckRedirect` returns `http.ErrUseLastResponse`) to prevent SSRF via compromised log servers
+- Fixed FINDING-03 (LOW): Added security invariant comment to ORDER BY clause construction in `internal/storage/hits.go` documenting allowlist safety
+- Resolved ISSUE-001 (security audit) and ISSUE-002 (busy timeout) — moved to closed
+
+### Documentation — BE (backend-engineer) Phase 5.2 Final Polish
+- Updated `.claude/CLAUDE.md` with final project structure (doc.go files, messages.go, CI/CD artifacts, .goreleaser.yml), `make check` as primary verification command
+- Verified all help text for root command and all subcommands (watch, query, db stats/clear/export/path, profiles list/show)
+
+---
+
 ## [Unreleased] — Phase 4 Hardening
 
 ### Testing — QA (qa-engineer) Phase 4.1 Test Coverage Expansion

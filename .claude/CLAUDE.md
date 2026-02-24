@@ -27,10 +27,7 @@ go run ./cmd/ctsnare
 # Build
 go build -o ctsnare ./cmd/ctsnare
 
-# Test
-go test ./...
-
-# Test with race detection
+# Test (with race detection)
 go test -race -count=1 ./...
 
 # Lint
@@ -42,8 +39,8 @@ gofmt -w .
 # Vet
 go vet ./...
 
-# Full verification (run at merge gates)
-go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...
+# Full verification (build + vet + lint + test) — run after every task
+make check
 ```
 
 ## Project Structure
@@ -55,26 +52,29 @@ ctsnare/
 |   |-- tech-stack.md        # Technology choices and rationale
 |   |-- build-plan.md        # Orchestration manifest and task tracking
 |   |-- changelog.md         # Version history
-|   |-- issues/              # Issue tracking
+|   |-- issues/              # Issue tracking (open/ and closed/)
 |-- .claude/                 # Agent and rule definitions
+|-- .github/workflows/       # GitHub Actions CI and release workflows
 |-- cmd/
 |   |-- ctsnare/
 |       |-- main.go          # Entry point — calls internal/cmd.Execute()
 |-- internal/
 |   |-- domain/              # Core types, interfaces, contracts (FROZEN after Phase 1)
+|   |   |-- doc.go           # Package documentation
 |   |   |-- types.go         # Hit, CTLogEntry, ScoredDomain, Severity
 |   |   |-- interfaces.go    # Scorer, Store, ProfileLoader interfaces
 |   |   |-- query.go         # QueryFilter, DBStats
 |   |   |-- profile.go       # Profile type
 |   |-- cmd/                 # Cobra subcommand definitions
-|   |   |-- root.go          # Root command, persistent flags
+|   |   |-- doc.go           # Package documentation
+|   |   |-- root.go          # Root command, persistent flags, slog setup
 |   |   |-- watch.go         # watch command (TUI + headless)
 |   |   |-- query.go         # query command (CLI search)
-|   |   |-- db.go            # db management commands
+|   |   |-- db.go            # db management commands (stats, clear, export, path)
 |   |   |-- profiles.go      # profile listing/inspection
 |   |   |-- output.go        # Shared output formatting (table/json/csv)
 |   |-- poller/              # CT log polling engine
-|   |   |-- ctlog.go         # RFC 6962 API client
+|   |   |-- ctlog.go         # RFC 6962 API client (SSRF-hardened, body-limited)
 |   |   |-- parser.go        # Certificate parsing, domain extraction
 |   |   |-- poller.go        # Per-log goroutine polling loop
 |   |   |-- manager.go       # Multi-poller lifecycle management
@@ -85,17 +85,19 @@ ctsnare/
 |   |   |-- profile.go       # Profile manager (ProfileLoader impl)
 |   |   |-- builtin.go       # Built-in profiles (crypto, phishing, all)
 |   |-- storage/             # SQLite data layer
-|   |   |-- db.go            # Database init, WAL mode, connection
+|   |   |-- db.go            # Database init, WAL mode, busy_timeout, connection
 |   |   |-- schema.go        # Table definitions and indexes
 |   |   |-- hits.go          # Hit CRUD — upsert, query
 |   |   |-- sessions.go      # Session management, clear, stats
 |   |   |-- export.go        # JSONL and CSV export
 |   |-- tui/                 # Bubbletea TUI
+|   |   |-- doc.go           # Package documentation
 |   |   |-- app.go           # Root model — view switching, key routing
 |   |   |-- feed.go          # Live feed view
 |   |   |-- explorer.go      # DB explorer view
 |   |   |-- detail.go        # Record drill-down view
 |   |   |-- filter.go        # Filter input overlay
+|   |   |-- messages.go      # Shared message types (HitMsg, StatsMsg, etc.)
 |   |   |-- styles.go        # Lipgloss style definitions
 |   |   |-- keys.go          # Key binding definitions
 |   |-- config/              # Configuration loading
@@ -103,7 +105,8 @@ ctsnare/
 |-- go.mod
 |-- go.sum
 |-- .golangci.yml            # Linter configuration
-|-- Makefile                 # Build targets (created in Phase 4)
+|-- .goreleaser.yml          # GoReleaser cross-compile configuration
+|-- Makefile                 # Build targets (build, test, lint, check, etc.)
 ```
 
 ## Coding Standards

@@ -135,7 +135,7 @@ Phase 2: Core Engine         [████████████████�
 Phase 3: Integration         [████████████████████] 100%  ✅
 Phase 4: Hardening           [████████████████████] 100%  ✅
   🔀 Merge Gate 2            [████████████████████] 100%  ✅
-Phase 5: Polish & Release    [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
+Phase 5: Polish & Release    [██████░░░░░░░░░░░░░░]  33%  🔄
 ─────────────────────────────────────────────────────────────
 Overall Progress             [██████████████████░░]  92%
 ```
@@ -148,7 +148,7 @@ Overall Progress             [████████████████�
 | Phase 3: Integration | 10 | 10 | 0 | 0 | 100% | CLI |
 | Phase 4: Hardening | 15 | 15 | 0 | 0 | 100% | QA, SEC, OPS |
 | Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
-| Phase 5: Polish & Release | 6 | 0 | 0 | 0 | 0% | BE, CLI, DOC |
+| Phase 5: Polish & Release | 6 | 3 | 0 | 3 | 50% | BE, CLI, DOC |
 | **Total** | **76** | **70** | **0** | **0** | **92%** | |
 
 ---
@@ -497,15 +497,15 @@ Overall Progress             [████████████████�
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 5.1.1 | Address all CRITICAL and HIGH findings from the Phase 4 security audit. Implement fixes as described in the issue files. Mark issues as resolved. Run full test suite after each fix. | BE |
-| ⬜ | 5.1.2 | **BUILD CHECK** -- `make check` passes clean after all security fixes. | BE |
+| ✅ | 5.1.1 | Address all CRITICAL and HIGH findings from the Phase 4 security audit. Implement fixes as described in the issue files. Mark issues as resolved. Run full test suite after each fix. | BE |
+| ✅ | 5.1.2 | **BUILD CHECK** -- `make check` passes clean after all security fixes. | BE |
 
 ### 5.2 Documentation & Final Polish
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 5.2.1 | Update `/.claude/CLAUDE.md` with final project structure, build commands, and any new conventions established during development. Fill in all placeholder sections. | DOC |
-| ⬜ | 5.2.2 | Create `README.md` at project root: project name + one-liner, installation instructions (go install + binary download), quick start (ctsnare watch, ctsnare query), all subcommands with examples, configuration section (TOML config file location, all configurable options with defaults), built-in profiles list, architecture overview (data flow diagram from PRD), development section (make dev, make test, make lint), license. | DOC |
+| ✅ | 5.2.1 | Update `/.claude/CLAUDE.md` with final project structure, build commands, and any new conventions established during development. Fill in all placeholder sections. | DOC |
+| 🔄 | 5.2.2 | Create `README.md` at project root: project name + one-liner, installation instructions (go install + binary download), quick start (ctsnare watch, ctsnare query), all subcommands with examples, configuration section (TOML config file location, all configurable options with defaults), built-in profiles list, architecture overview (data flow diagram from PRD), development section (make dev, make test, make lint), license. | DOC |
 | ⬜ | 5.2.3 | Add Go doc comments to all exported functions and types across all packages. Every exported symbol in `internal/domain/`, `internal/config/`, `internal/storage/`, `internal/scoring/`, `internal/profile/`, `internal/poller/`, `internal/tui/`, `internal/cmd/` gets a doc comment following Go conventions (starts with the name of the symbol). | DOC |
 | ⬜ | 5.2.4 | Update `.project/changelog.md` with all changes from v0.1.0 (project setup through feature complete). Mark milestone 0.5.0 as Feature Complete with today's date. | DOC |
 
