@@ -1,5 +1,11 @@
 # ctsnare
 
+[![CI](https://github.com/ul0gic/ctsnare/actions/workflows/ci.yml/badge.svg)](https://github.com/ul0gic/ctsnare/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/ul0gic/ctsnare)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ul0gic/ctsnare?include_prereleases)](https://github.com/ul0gic/ctsnare/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ul0gic/ctsnare)](https://goreportcard.com/report/github.com/ul0gic/ctsnare)
+
 Monitor Certificate Transparency logs in real-time to detect phishing, typosquatting, and brand impersonation domains the moment their TLS certificates are issued.
 
 ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scores new domains against keyword profiles using six heuristics, stores every hit in an embedded SQLite database, and gives you a live terminal dashboard plus a composable CLI query interface — all in a single, zero-dependency binary.
@@ -455,24 +461,36 @@ The skip list is configurable via `skip_suffixes` in the config file.
 
 ### Data flow
 
-```
-CT Logs (Google Argon, Xenon, ...)
-         │
-         │  RFC 6962 HTTP API (get-sth, get-entries)
-         ▼
-  Poller Goroutines  ◄── one goroutine per CT log
-    (internal/poller)
-         │
-         │  decode MerkleTreeLeaf, parse x509, extract domains
-         ▼
-  Scoring Engine
-  (internal/scoring)
-         │
-         ├──► SQLite Database  (always — WAL mode, crash-safe dedup)
-         │    (internal/storage)
-         │
-         └──► TUI Channel  (when watching — buffered, non-blocking)
-              (internal/tui)
+```mermaid
+flowchart TD
+    A["CT Logs\n(Google Argon, Xenon, ...)"] -->|"RFC 6962 HTTP API\nget-sth, get-entries"| B
+
+    subgraph Polling ["Poller Goroutines (internal/poller)"]
+        B["CT Log Client\n429 backoff, redirect protection"] --> C["Certificate Parser\nMerkleTreeLeaf → x509\nextract CN + SAN domains"]
+    end
+
+    C -->|"candidate domains"| D
+
+    subgraph Scoring ["Scoring Engine (internal/scoring)"]
+        D["Six Heuristics\nkeyword match · suspicious TLD\ndomain length · hyphen density\ndigit sequences · multi-keyword bonus"] --> E{"Score > 0?"}
+    end
+
+    E -->|"skip"| F["Discard"]
+    E -->|"hit"| G["Severity Classification\nHIGH ≥ 6 · MED 4-5 · LOW 1-3"]
+
+    G --> H["SQLite Database\n(internal/storage)\nWAL mode · busy_timeout\nupsert dedup by domain"]
+    G -->|"buffered channel"| I["TUI Dashboard\n(internal/tui)\nLive Feed · DB Explorer\nDetail · Filter"]
+
+    subgraph Config ["Configuration (internal/config)"]
+        J["TOML Config\nCT log URLs · batch size\npoll interval · DB path"] -.->|"configures"| B
+        K["Keyword Profiles\n(internal/profile)\ncrypto · phishing · all · custom"] -.->|"configures"| D
+    end
+
+    style A fill:#4a9eff,color:#fff
+    style H fill:#f59e0b,color:#fff
+    style I fill:#10b981,color:#fff
+    style F fill:#6b7280,color:#fff
+    style G fill:#ef4444,color:#fff
 ```
 
 ### Key design decisions
