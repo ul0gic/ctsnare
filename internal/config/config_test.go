@@ -96,11 +96,12 @@ func TestMergeFlags_OverridesNonZeroValues(t *testing.T) {
 	cfg := DefaultConfig()
 	original := *cfg
 
-	MergeFlags(cfg, "/custom/path.db", 1024, 30*time.Second)
+	MergeFlags(cfg, "/custom/path.db", 1024, 30*time.Second, 500)
 
 	assert.Equal(t, "/custom/path.db", cfg.DBPath)
 	assert.Equal(t, 1024, cfg.BatchSize)
 	assert.Equal(t, 30*time.Second, cfg.PollInterval)
+	assert.Equal(t, int64(500), cfg.Backtrack)
 	// Other fields unchanged
 	assert.Equal(t, original.DefaultProfile, cfg.DefaultProfile)
 }
@@ -109,7 +110,7 @@ func TestMergeFlags_ZeroValuesDoNotOverride(t *testing.T) {
 	cfg := DefaultConfig()
 	original := *cfg
 
-	MergeFlags(cfg, "", 0, 0)
+	MergeFlags(cfg, "", 0, 0, 0)
 
 	assert.Equal(t, original.DBPath, cfg.DBPath)
 	assert.Equal(t, original.BatchSize, cfg.BatchSize)

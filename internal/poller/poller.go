@@ -40,9 +40,14 @@ type Poller struct {
 	pollInterval time.Duration
 	hitChan      chan<- domain.Hit
 	statsChan    chan<- PollStats
+	backtrack    int64
 }
 
-// NewPoller creates a poller for a single CT log endpoint.
+// NewPoller creates a poller for a single CT log endpoint. The backtrack
+// parameter controls how many entries behind the current log tip to start.
+// When backtrack > 0, the poller begins at (tree_size - backtrack), giving
+// immediate results on launch. When backtrack == 0, the poller starts at
+// the tip and waits for new entries.
 func NewPoller(
 	logURL string,
 	logName string,
@@ -53,6 +58,7 @@ func NewPoller(
 	pollInterval time.Duration,
 	hitChan chan<- domain.Hit,
 	statsChan chan<- PollStats,
+	backtrack int64,
 ) *Poller {
 	return &Poller{
 		client:       NewCTLogClient(logURL),
@@ -64,6 +70,7 @@ func NewPoller(
 		pollInterval: pollInterval,
 		hitChan:      hitChan,
 		statsChan:    statsChan,
+		backtrack:    backtrack,
 	}
 }
 
@@ -80,9 +87,16 @@ func (p *Poller) Run(ctx context.Context) error {
 	}
 
 	currentIndex := sth.TreeSize
+	if p.backtrack > 0 {
+		currentIndex = sth.TreeSize - p.backtrack
+		if currentIndex < 0 {
+			currentIndex = 0
+		}
+	}
 	slog.Info("poller initialized",
 		"log", p.logName,
 		"tree_size", sth.TreeSize,
+		"backtrack", p.backtrack,
 		"starting_at", currentIndex)
 
 	stats := PollStats{

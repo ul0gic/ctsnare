@@ -11,22 +11,25 @@ import (
 
 // Manager coordinates multiple Poller goroutines, one per configured CT log.
 type Manager struct {
-	cfg     *config.Config
-	scorer  domain.Scorer
-	store   domain.Store
-	profile *domain.Profile
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+	cfg       *config.Config
+	scorer    domain.Scorer
+	store     domain.Store
+	profile   *domain.Profile
+	backtrack int64
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // NewManager creates a poller manager that will launch one poller per CT log
-// from the config.
-func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile) *Manager {
+// from the config. The backtrack parameter controls how many entries behind
+// the current log tip each poller starts at.
+func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64) *Manager {
 	return &Manager{
-		cfg:     cfg,
-		scorer:  scorer,
-		store:   store,
-		profile: profile,
+		cfg:       cfg,
+		scorer:    scorer,
+		store:     store,
+		profile:   profile,
+		backtrack: backtrack,
 	}
 }
 
@@ -47,6 +50,7 @@ func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsCha
 			m.cfg.PollInterval,
 			hitChan,
 			statsChan,
+			m.backtrack,
 		)
 
 		m.wg.Add(1)

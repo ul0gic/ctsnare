@@ -56,6 +56,11 @@ type Config struct {
 	// Domains matching any suffix are skipped before keyword matching, preventing
 	// infrastructure platforms (CDNs, cloud hosts) from flooding results.
 	SkipSuffixes []string `toml:"skip_suffixes"`
+
+	// Backtrack is the number of CT log entries behind the current tip to start at.
+	// When > 0, the poller begins at (tree_size - Backtrack), giving immediate
+	// results on launch. Default: 0 (start at the tip, wait for new entries).
+	Backtrack int64 `toml:"backtrack"`
 }
 
 // DefaultConfig returns a Config with sensible production defaults.
@@ -114,7 +119,7 @@ func Load(path string) (*Config, error) {
 
 // MergeFlags applies CLI flag overrides to the config. Zero values are
 // treated as "not set" and do not override.
-func MergeFlags(cfg *Config, dbPath string, batchSize int, pollInterval time.Duration) {
+func MergeFlags(cfg *Config, dbPath string, batchSize int, pollInterval time.Duration, backtrack int64) {
 	if dbPath != "" {
 		cfg.DBPath = dbPath
 	}
@@ -123,6 +128,9 @@ func MergeFlags(cfg *Config, dbPath string, batchSize int, pollInterval time.Dur
 	}
 	if pollInterval > 0 {
 		cfg.PollInterval = pollInterval
+	}
+	if backtrack > 0 {
+		cfg.Backtrack = backtrack
 	}
 }
 
