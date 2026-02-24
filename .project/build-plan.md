@@ -138,9 +138,9 @@ Phase 3: Integration         [████████████████�
 Phase 4: Hardening           [████████████████████] 100%  ✅
   🔀 Merge Gate 2            [████████████████████] 100%  ✅
 Phase 5: Polish & Release    [████████████████████] 100%  ✅
-Phase 6: Documentation       [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
+Phase 6: Documentation       [████████████████████] 100%  ✅
 ─────────────────────────────────────────────────────────────
-Overall Progress             [█████████████████░░░]  85%
+Overall Progress             [████████████████████] 100%
 ```
 
 | Phase | Tasks | Completed | Blocked | Deferred | Progress | Agents |
@@ -152,8 +152,8 @@ Overall Progress             [████████████████�
 | Phase 4: Hardening | 15 | 15 | 0 | 0 | 100% | QA, SEC, OPS |
 | Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
 | Phase 5: Polish & Release | 3 | 3 | 0 | 0 | 100% | BE, DOC |
-| Phase 6: Documentation | 13 | 0 | 0 | 0 | 0% | DOC |
-| **Total** | **86** | **73** | **0** | **0** | **85%** | |
+| Phase 6: Documentation | 13 | 13 | 0 | 0 | 100% | DOC |
+| **Total** | **86** | **86** | **0** | **0** | **100%** | |
 
 ---
 
@@ -566,8 +566,8 @@ Overall Progress             [████████████████�
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 6.4.1 | Update `.project/changelog.md`: consolidate all [Unreleased] sections into proper versioned entries. Add Phase 6 documentation work. Mark milestone `0.5.0` as Feature Complete with today's date in the Milestones table. Ensure the changelog follows Keep a Changelog format consistently -- every entry categorized (Added, Changed, Fixed, Security), reverse chronological order, version headers link to git tags. | DOC |
-| ⬜ | 6.4.2 | **BUILD CHECK** -- Final full verification: `make check` passes clean. Run `./ctsnare --help` and verify all commands are documented. Run `go doc ./...` and verify all exported symbols have doc comments. Verify `README.md` exists and is well-formed. Verify `.project/changelog.md` has 0.5.0 milestone entry. This is the final quality gate before the project is considered feature complete. | DOC |
+| ✅ | 6.4.1 | Update `.project/changelog.md`: consolidate all [Unreleased] sections into proper versioned entries. Add Phase 6 documentation work. Mark milestone `0.5.0` as Feature Complete with today's date in the Milestones table. Ensure the changelog follows Keep a Changelog format consistently -- every entry categorized (Added, Changed, Fixed, Security), reverse chronological order, version headers link to git tags. | DOC |
+| ✅ | 6.4.2 | **BUILD CHECK** -- Final full verification: `make check` passes clean. Run `./ctsnare --help` and verify all commands are documented. Run `go doc ./...` and verify all exported symbols have doc comments. Verify `README.md` exists and is well-formed. Verify `.project/changelog.md` has 0.5.0 milestone entry. This is the final quality gate before the project is considered feature complete. | DOC |
 
 ---
 
@@ -655,5 +655,5 @@ See `.project/changelog.md` for detailed version history.
 ---
 
 *Last updated: 2026-02-24*
-*Current Phase: Phase 5 COMPLETE -- ready for Phase 6*
-*Next Milestone: Phase 6 Documentation (sequential, DOC agent) -- then v0.5.0 Feature Complete*
+*Current Phase: Phase 6 COMPLETE -- all phases done*
+*Milestone: v0.5.0 Feature Complete -- README, Go doc comments, CLI help text, changelog finalized*
