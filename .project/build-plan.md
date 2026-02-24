@@ -73,6 +73,10 @@
 | Phase 4 | PARALLEL | Yes | QA + SEC + OPS | Partial | Yes -- Merge Gate 2 |
 | Phase 5 | Sequential | No | Lead (BE/CLI) | No | -- |
 | Phase 6 | Sequential | No | DOC | No | -- |
+| Phase 7.1 | Sequential | No | Lead (BE) | No | -- |
+| Phase 7.2 | PARALLEL | Yes | BE + CLI | No | Yes -- Merge Gate 3 |
+| Phase 7.3 | Sequential | No | Lead (CLI) | No | -- |
+| Phase 7.4 | PARALLEL | Yes | QA + CLI | Partial | Yes -- Merge Gate 4 |
 
 ---
 
@@ -92,6 +96,11 @@
 | `.project/changelog.md` | ALL agents | Every agent logs milestones at end of sub-phases. Append-only |
 | `.project/prd.md`, `.project/tech-stack.md` | Lead only | Only lead session modifies requirements and tech stack docs |
 | `internal/cmd/root.go` | CLI (owner) | CLI agent owns all Cobra command files. BE never touches these |
+| `internal/domain/types.go` | BE (Phase 7.1 only) | Modified in Phase 7.1 foundation to add enrichment and bookmark fields. FROZEN again before Phase 7.2 parallel work |
+| `internal/domain/interfaces.go` | BE (Phase 7.1 only) | Modified in Phase 7.1 foundation to add enrichment-related store methods. FROZEN again before Phase 7.2 |
+| `internal/domain/query.go` | BE (Phase 7.1 only) | Modified in Phase 7.1 foundation to add bookmark/liveness filter fields. FROZEN again before Phase 7.2 |
+| `internal/storage/schema.go` | BE (Phase 7.1 only) | Modified in Phase 7.1 foundation to add enrichment and bookmark columns. FROZEN again before Phase 7.2 |
+| `internal/tui/messages.go` | BE (Phase 7.1 only) | Modified in Phase 7.1 foundation to add new message types. FROZEN again before Phase 7.2 |
 
 ---
 
@@ -107,6 +116,10 @@
 | During Phase 4 -- OPS agent | `golangci-lint run ./... && go build -o ctsnare ./cmd/ctsnare` | OPS in worktree |
 | During Phase 6 -- DOC agent | `make check` (full build + vet + lint + test after each doc comment batch). Also `go doc ./internal/<pkg>/` to verify doc comment rendering. | DOC on main |
 | At merge gates | `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` | Lead session on merged main |
+| During Phase 7.2 -- BE agent | `go build ./internal/poller/... ./internal/scoring/... ./internal/profile/... ./internal/storage/... ./internal/config/... ./internal/enrichment/... && go vet ./internal/poller/... ./internal/scoring/... ./internal/profile/... ./internal/storage/... ./internal/config/... ./internal/enrichment/... && go test ./internal/poller/... ./internal/scoring/... ./internal/profile/... ./internal/storage/... ./internal/config/... ./internal/enrichment/...` | BE in worktree |
+| During Phase 7.2 -- CLI agent | `go build ./internal/tui/... ./internal/cmd/... ./cmd/ctsnare/... && go vet ./internal/tui/... ./internal/cmd/... ./cmd/ctsnare/... && go test ./internal/tui/... ./internal/cmd/...` | CLI in worktree |
+| During Phase 7.4 -- QA agent | `go test -v -count=1 -race ./...` | QA in worktree |
+| During Phase 7.4 -- CLI agent | `go build ./internal/tui/... ./internal/cmd/... ./cmd/ctsnare/... && go vet ./internal/tui/... ./internal/cmd/... && go test ./internal/tui/... ./internal/cmd/...` | CLI in worktree |
 | Before release | `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -race -count=1 ./...` | Lead session |
 
 ---
@@ -139,8 +152,15 @@ Phase 4: Hardening           [████████████████�
   🔀 Merge Gate 2            [████████████████████] 100%  ✅
 Phase 5: Polish & Release    [████████████████████] 100%  ✅
 Phase 6: Documentation       [████████████████████] 100%  ✅
+Phase 7: Enhancements        [                    ]   0%
+  7.1 Foundation             [                    ]   0%
+  7.2 Parallel Build         [                    ]   0%
+  🔀 Merge Gate 3            [                    ]   0%
+  7.3 Integration            [                    ]   0%
+  7.4 Parallel Polish        [                    ]   0%
+  🔀 Merge Gate 4            [                    ]   0%
 ─────────────────────────────────────────────────────────────
-Overall Progress             [████████████████████] 100%
+Overall Progress             [███████████         ]  55%
 ```
 
 | Phase | Tasks | Completed | Blocked | Deferred | Progress | Agents |
@@ -153,7 +173,13 @@ Overall Progress             [████████████████�
 | Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
 | Phase 5: Polish & Release | 3 | 3 | 0 | 0 | 100% | BE, DOC |
 | Phase 6: Documentation | 13 | 13 | 0 | 0 | 100% | DOC |
-| **Total** | **86** | **86** | **0** | **0** | **100%** | |
+| Phase 7.1: Enhancement Foundation | 17 | 0 | 0 | 0 | 0% | BE |
+| Phase 7.2: Enhancement Build | 32 | 0 | 0 | 0 | 0% | BE, CLI |
+| Merge Gate 3 | 1 | 0 | 0 | 0 | 0% | Lead |
+| Phase 7.3: Enhancement Integration | 8 | 0 | 0 | 0 | 0% | CLI |
+| Phase 7.4: Enhancement Polish | 10 | 0 | 0 | 0 | 0% | QA, CLI |
+| Merge Gate 4 | 1 | 0 | 0 | 0 | 0% | Lead |
+| **Total** | **155** | **86** | **0** | **0** | **55%** | |
 
 ---
 
@@ -571,6 +597,302 @@ Overall Progress             [████████████████�
 
 ---
 
+## Phase 7: Enhancements
+
+> Multi-phase enhancement cycle that adds enrichment, TUI polish, backtracking, batch operations, and bookmarking.
+> Depends on: Phase 6 (all tasks complete, build passes clean)
+>
+> This phase unfreezes `internal/domain/` types for the first time since Phase 1. Domain type changes are
+> made in Phase 7.1 (sequential foundation) and then REFROZEN before Phase 7.2 parallel work begins.
+> Phase 7 follows the same foundation-then-parallel pattern as the original build but scoped to enhancements.
+>
+> **Risk: MEDIUM** -- Domain type modifications ripple across storage, poller, TUI, and CLI.
+> The foundation sub-phase (7.1) must be thorough and the schema migration must be backward-compatible.
+
+---
+
+### Phase 7.1: Enhancement Foundation (Sequential)
+
+> Sequential. Lead session (backend-engineer) drives all schema, type, and interface changes.
+> No worktrees needed -- single working directory on main.
+> Must complete before any Phase 7.2 parallel work.
+>
+> **CRITICAL: Domain types are UNFROZEN for this sub-phase only.** After 7.1 completes, domain types
+> are REFROZEN for all of Phase 7.2 and beyond. This is the only window to modify shared contracts.
+>
+> **Risk: HIGH** -- These changes affect every package that imports `internal/domain/`. Every addition
+> must be backward-compatible (new fields with zero-value defaults, new optional interface methods).
+
+#### File Ownership: Lead session (BE) owns everything during this sub-phase.
+
+#### 7.1.1 Domain Type Extensions
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 7.1.1.1 | Extend `internal/domain/types.go`: Add enrichment fields to the `Hit` struct: `IsLive bool` (domain responded to HTTP probe), `ResolvedIPs []string` (DNS A/AAAA records), `HostingProvider string` (detected CDN/host from reverse DNS or IP range), `HTTPStatus int` (status code from liveness probe), `LiveCheckedAt time.Time` (when the probe ran), `Bookmarked bool` (user-flagged as interesting). All new fields have zero-value defaults so existing code continues to work without modification. | BE |
+| ✅ | 7.1.1.2 | Extend `internal/domain/query.go`: Add new filter fields to `QueryFilter` struct: `Bookmarked bool` (filter to bookmarked-only hits), `LiveOnly bool` (filter to live domains only). These fields default to false (no filter). | BE |
+| ✅ | 7.1.1.3 | Extend `internal/domain/interfaces.go`: Add new methods to the `Store` interface: `SetBookmark(ctx context.Context, domain string, bookmarked bool) error`, `DeleteHit(ctx context.Context, domain string) error`, `DeleteHits(ctx context.Context, domains []string) error`, `UpdateEnrichment(ctx context.Context, domain string, isLive bool, resolvedIPs []string, hostingProvider string, httpStatus int) error`. These are additive methods -- existing interface implementations must add them. | BE |
+| ✅ | 7.1.1.4 | **BUILD CHECK** -- `go build ./... && go vet ./... && golangci-lint run ./...` passes clean. Existing tests may fail at this point due to interface expansion -- that is expected and will be fixed in 7.1.2. | BE |
+
+#### 7.1.2 Storage Schema Migration
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 7.1.2.1 | Update `internal/storage/schema.go`: Add new columns to the `hits` table schema using `ALTER TABLE IF NOT EXISTS` pattern or a migration approach. New columns: `is_live INTEGER DEFAULT 0`, `resolved_ips TEXT DEFAULT '[]'` (JSON array), `hosting_provider TEXT DEFAULT ''`, `http_status INTEGER DEFAULT 0`, `live_checked_at DATETIME`, `bookmarked INTEGER DEFAULT 0`. Add indexes: `idx_hits_bookmarked` on `(bookmarked)` where bookmarked=1, `idx_hits_is_live` on `(is_live)`. Use a separate migration SQL constant (e.g., `migrationV2SQL`) that runs ALTER TABLE statements wrapped in try/ignore-if-exists logic so the migration is idempotent. Call this migration from `NewDB` after the initial schema creation. | BE |
+| ✅ | 7.1.2.2 | Update `internal/storage/hits.go`: Extend `UpsertHit` to write the new enrichment and bookmark columns. Extend `QueryHits` to support the new filter fields (`Bookmarked`, `LiveOnly`). Extend `scanHit` to read the new columns back into the extended `Hit` struct (handle `resolved_ips` as JSON array, `live_checked_at` as timestamp). Extend `sanitizeSortColumn` to accept `is_live`, `bookmarked`, `http_status`, `live_checked_at` as valid sort columns. | BE |
+| ✅ | 7.1.2.3 | Implement `SetBookmark` on `*DB`: `UPDATE hits SET bookmarked = ? WHERE domain = ?`. Implement `DeleteHit` on `*DB`: `DELETE FROM hits WHERE domain = ?`. Implement `DeleteHits` on `*DB`: `DELETE FROM hits WHERE domain IN (?)` -- use a transaction with batched parameter binding for the domain list. Implement `UpdateEnrichment` on `*DB`: `UPDATE hits SET is_live = ?, resolved_ips = ?, hosting_provider = ?, http_status = ?, live_checked_at = ? WHERE domain = ?` -- serialize `resolved_ips` as JSON array. All methods in `internal/storage/hits.go`. | BE |
+| ✅ | 7.1.2.4 | Update `internal/storage/db_test.go`: Add tests for the new schema migration (open existing DB, verify new columns exist). Test `SetBookmark` (bookmark a hit, query with bookmarked filter, verify). Test `DeleteHit` (insert hit, delete it, verify gone). Test `DeleteHits` (insert 5 hits, delete 3, verify 2 remain). Test `UpdateEnrichment` (insert hit, update enrichment fields, query back, verify all fields roundtrip including resolved_ips JSON and live_checked_at timestamp). Test that `QueryHits` with `Bookmarked: true` returns only bookmarked hits. Test that `QueryHits` with `LiveOnly: true` returns only live hits. | BE |
+| ✅ | 7.1.2.5 | **BUILD CHECK** -- `go build ./... && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. All existing tests plus new migration tests pass. | BE |
+
+#### 7.1.3 TUI Message Types & Shared Contracts
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 7.1.3.1 | Update `internal/tui/messages.go`: Add new message types: `EnrichmentMsg struct { Domain string; IsLive bool; ResolvedIPs []string; HostingProvider string; HTTPStatus int }` (enrichment result arrived for a domain), `BookmarkToggleMsg struct { Domain string; Bookmarked bool }` (bookmark state changed), `DeleteHitsMsg struct { Domains []string }` (hits were deleted), `DiscardedDomainMsg struct { Domain string }` (domain was scanned but scored zero -- for the activity feed). Add `HitsPerMin float64` field to the existing `PollStats` struct. | BE |
+| ✅ | 7.1.3.2 | Update `internal/tui/styles.go`: Add new style constants: `StyleLiveDomain` (bold green foreground, for highlighting live domains), `StyleDiscardedDomain` (dim gray foreground, for briefly showing discarded domains in the feed), `StyleBookmarked` (gold/yellow star icon style), `StyleSelectedCheckbox` (for multi-select visual indicator in explorer), `colorLive` adaptive color (green), `colorDiscarded` adaptive color (dark gray/dim). | BE |
+| ✅ | 7.1.3.3 | Update `internal/tui/keys.go`: Add new key bindings to `KeyMap`: `Bookmark` (key: "b", help: "bookmark"), `Delete` (key: "d", help: "delete"), `SelectToggle` (key: " " (space), help: "select"), `SelectAll` (key: "a", help: "select all"), `DeselectAll` (key: "A", help: "deselect all"), `ConfirmDelete` (key: "D", help: "delete selected"). Update `ShortHelp()` and `FullHelp()` to include the new bindings. | BE |
+| ✅ | 7.1.3.4 | **BUILD CHECK** -- `go build ./... && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. All message types, styles, and key bindings compile without errors. | BE |
+
+#### 7.1.4 Enrichment Package Scaffold
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ✅ | 7.1.4.1 | Create directory `internal/enrichment/` and file `internal/enrichment/enricher.go`. Define the `Enricher` struct: holds a `domain.Store`, `httpClient *http.Client` (with 5s timeout), rate limiter state (max 5 concurrent probes, 1 req/sec per domain via `golang.org/x/time/rate` or a simple semaphore+ticker). Define `NewEnricher(store domain.Store, enrichChan chan<- EnrichResult) *Enricher`. Define `EnrichResult` struct: `Domain string`, `IsLive bool`, `ResolvedIPs []string`, `HostingProvider string`, `HTTPStatus int`, `Error error`. Define `Enqueue(domain string)` method that adds a domain to the probe queue. Define `Run(ctx context.Context) error` method signature (goroutine that drains the queue, probes domains, writes results to store, sends to enrichChan). Implement the rate-limited worker pool: a buffered queue channel (capacity 1000), 5 worker goroutines that each rate-limit to 1 req/sec. Placeholder implementations for DNS and HTTP probe (to be filled in 7.2). | BE |
+| ✅ | 7.1.4.2 | Create `internal/enrichment/dns.go`. Define `ResolveDomain(domain string) (ips []string, provider string, err error)`. Uses `net.DefaultResolver.LookupHost` to resolve A/AAAA records. Detects hosting provider by checking resolved IPs against known CIDR ranges or reverse DNS patterns: Cloudflare (104.16.0.0/12, 172.64.0.0/13, or reverse DNS containing "cloudflare"), AWS (*.amazonaws.com reverse DNS), Google Cloud (*.googleusercontent.com, *.1e100.net), Azure (*.azure.com), Fastly, Akamai, DigitalOcean (*.digitalocean.com). Falls back to reverse DNS lookup (`net.LookupAddr`) if no CIDR match. Returns "unknown" if no provider detected. Short timeout (3s) per resolution to avoid blocking the enrichment pipeline. | BE |
+| ✅ | 7.1.4.3 | Create `internal/enrichment/http.go`. Define `ProbeLiveness(domain string) (statusCode int, isLive bool, err error)`. Sends HTTP HEAD request to `https://<domain>/` with a 5-second timeout. If HTTPS fails (connection refused, TLS error), try `http://<domain>/` as fallback. `isLive` is true if any HTTP response is received (even 4xx/5xx -- the domain resolves and has a web server). Returns status code 0 and isLive=false if both attempts fail or timeout. Set `User-Agent` header to a reasonable value (e.g., `ctsnare/1.0 (domain-liveness-check)`). Follow up to 3 redirects. Do NOT read the response body (HEAD request only). | BE |
+| ✅ | 7.1.4.4 | **BUILD CHECK** -- `go build ./... && go vet ./... && golangci-lint run ./...` passes clean. The enrichment package compiles. Tests will be added during Phase 7.2. | BE |
+
+---
+
+### Phase 7.2: Enhancement Build -- PARALLEL
+
+> PARALLEL. Two agents work simultaneously in isolated worktrees.
+> Depends on: Phase 7.1 (all tasks complete, build passes clean)
+>
+> **BE agent** builds the enrichment pipeline, backtrack mode, and storage integration.
+> **CLI agent** builds the TUI visual overhaul, batch delete, bookmark UI, and enrichment display.
+>
+> **Risk: MEDIUM** -- Agents work against the extended domain types from Phase 7.1. No shared file modifications.
+> The CLI agent reads from `internal/domain/` and `internal/enrichment/` (read only -- frozen).
+> The BE agent does NOT touch any file under `internal/tui/` or `internal/cmd/`.
+> The CLI agent does NOT touch any file under `internal/poller/`, `internal/scoring/`, `internal/storage/`, `internal/config/`, `internal/enrichment/`.
+
+#### File Ownership (This Phase)
+
+| Agent | Owns (read/write) | Can Read (no write) |
+|-------|-------------------|-------------------|
+| BE (backend-engineer) | `internal/poller/`, `internal/scoring/`, `internal/storage/`, `internal/config/`, `internal/enrichment/` | `internal/domain/` (read only -- frozen), `internal/tui/messages.go` (read only) |
+| CLI (cli-engineer) | `internal/tui/`, `internal/cmd/`, `cmd/ctsnare/` | `internal/domain/` (read only -- frozen), `internal/enrichment/` (read only -- types only) |
+
+**OFF LIMITS during this phase:** `go.mod`, `go.sum`, `.golangci.yml`, `.gitignore`, `internal/domain/`, `internal/tui/messages.go`, `internal/tui/styles.go`, `internal/tui/keys.go`, `.project/prd.md`, `.project/tech-stack.md`
+
+#### 7.2.1 Enrichment Pipeline (BE) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.1.1 | Implement the full enrichment worker pool in `internal/enrichment/enricher.go`. The `Run` method starts 5 worker goroutines. Each worker reads domains from a buffered channel (capacity 1000), calls `ResolveDomain` and `ProbeLiveness`, writes results to the store via `store.UpdateEnrichment`, and sends `EnrichResult` to the enrichChan. Rate limiting: use a `time.Ticker` with 1-second interval per worker (so aggregate rate is 5 req/sec). Handle context cancellation for graceful shutdown. `Enqueue` is non-blocking -- if the queue is full, log a warning and drop (the domain is already stored, enrichment is best-effort). | BE |
+| ⬜ | 7.2.1.2 | Create `internal/enrichment/enricher_test.go`. Test with httptest.NewServer: test that a live domain returns `isLive=true` and a valid HTTP status. Test that a non-existent domain returns `isLive=false`. Test DNS resolution returns IP addresses for a known domain (use localhost/127.0.0.1 for controlled tests). Test rate limiting: enqueue 20 domains, verify they complete but don't all fire simultaneously (measure elapsed time > 3s). Test graceful shutdown: cancel context, verify workers exit without panic. Test queue overflow: enqueue more than capacity, verify no blocking or panic. | BE |
+| ⬜ | 7.2.1.3 | Create `internal/enrichment/dns_test.go`. Test `ResolveDomain` for localhost (should return 127.0.0.1 and provider "unknown"). Test provider detection logic with known IP ranges (mock or use table-driven tests with specific IPs that fall into Cloudflare/AWS/Google ranges). Test that timeout is respected (mock a slow DNS server or use a very short timeout). Test reverse DNS fallback. | BE |
+| ⬜ | 7.2.1.4 | Create `internal/enrichment/http_test.go`. Test `ProbeLiveness` against httptest.NewServer (returns isLive=true, correct status code). Test against a server that only responds on HTTP (HTTPS fallback to HTTP works). Test against no server (returns isLive=false, status 0). Test redirect following (up to 3 redirects). Test timeout behavior (slow server, verify timeout fires). | BE |
+| ⬜ | 7.2.1.5 | **BUILD CHECK** -- `go test ./internal/enrichment/... && go vet ./internal/enrichment/...` passes clean. | BE |
+
+#### 7.2.2 Backtrack Mode (BE) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.2.1 | Update `internal/poller/poller.go`: Add a `backtrack int64` field to the `Poller` struct. Update `NewPoller` to accept a `backtrack int64` parameter. In the `Run` method, after getting the initial STH, set `currentIndex = sth.TreeSize - backtrack` (clamped to 0 minimum). When `backtrack > 0`, the poller starts behind the tip and works forward, giving immediate results on launch. When `backtrack == 0` (default), behavior is unchanged -- start at the tip, wait for new entries. | BE |
+| ⬜ | 7.2.2.2 | Update `internal/poller/manager.go`: Add a `Backtrack int64` field to the `Manager` struct. Pass it through to each `NewPoller` call in `Start`. Update `NewManager` to accept the backtrack value from config or CLI flag. | BE |
+| ⬜ | 7.2.2.3 | Update `internal/config/config.go`: Add `Backtrack int64` field to `Config` struct with TOML tag `backtrack`. Default value: 0. Update `MergeFlags` to accept and apply a backtrack override. | BE |
+| ⬜ | 7.2.2.4 | Create tests in `internal/poller/poller_test.go` (or extend existing): Test that when backtrack=1000 and tree_size=5000, the poller starts at index 4000. Test that when backtrack=0, the poller starts at tree_size (current behavior). Test that when backtrack > tree_size, the poller starts at index 0 (clamped). Use httptest mock CT log server. | BE |
+| ⬜ | 7.2.2.5 | **BUILD CHECK** -- `go test ./internal/poller/... ./internal/config/... && go vet ./internal/poller/... ./internal/config/...` passes clean. | BE |
+
+#### 7.2.3 Storage & Export Extensions (BE) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.3.1 | Update `internal/storage/export.go`: Extend `ExportJSONL` and `ExportCSV` to include the new enrichment fields (is_live, resolved_ips, hosting_provider, http_status, live_checked_at) and the bookmarked field in the output. CSV gets new columns at the end (backward-compatible for parsers that use column names). JSONL gets the new fields in each JSON object. | BE |
+| ⬜ | 7.2.3.2 | Update `internal/storage/db_test.go`: Add roundtrip tests for the enrichment fields through export: insert hit with enrichment data, export as JSONL, parse and verify all fields present. Same for CSV. Verify backward compatibility -- a hit with zero-value enrichment fields exports cleanly (empty arrays, zero values). | BE |
+| ⬜ | 7.2.3.3 | **BUILD CHECK** -- `go test ./internal/storage/... && go vet ./internal/storage/...` passes clean. | BE |
+
+#### 7.2.4 TUI Visual Overhaul (CLI) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.4.1 | Overhaul `internal/tui/feed.go` -- severity colors throughout: Update `renderHitLine` to apply full-line severity coloring -- RED foreground for HIGH hits, ORANGE for MED, YELLOW/GREEN for LOW. The severity tag `[HIGH]`, `[MED]`, `[LOW]` should be rendered with the existing severity styles (which already map to red/yellow/green) but now also tint the entire domain text to match the severity color. Score number should also be colored to match severity. | CLI |
+| ⬜ | 7.2.4.2 | Overhaul `internal/tui/feed.go` -- auto-scrolling activity feed: Add a `discards []discardEntry` field (struct: Domain string, FadeAt time.Time) that holds recently discarded domains (scored zero). When a `DiscardedDomainMsg` arrives, prepend to the discards buffer (max 50 entries, display for 2 seconds then fade). In `renderHits`, interleave discarded domains (rendered in `StyleDiscardedDomain` -- dim gray) between real hits to show constant activity. Add a tick command that fires every 500ms to clear expired discards and refresh the viewport. This makes the feed feel alive even when hit rate is low. | CLI |
+| ⬜ | 7.2.4.3 | Overhaul `internal/tui/feed.go` -- enhanced status bar and throughput stats: Update `renderStatusBar` to show: `Scanned: N | Hits: N | Rate: N.N certs/s | Hits/min: N.N | Discarded: N | Logs: N | Profile: name`. Add `discardCount int64` to FeedModel to track total discards. Calculate hits/min from `PollStats.HitsPerMin`. Use color coding in the status bar: green for rate numbers, yellow for hit counts, red when rate drops to zero. | CLI |
+| ⬜ | 7.2.4.4 | Add help bar to `internal/tui/feed.go`: Below the status bar (or integrated into it), render a single-line help bar showing active keybindings: `Tab=views | q=quit | ?=help | j/k=scroll`. Use `StyleHelpKey` and `StyleHelpDesc` for consistent styling. The help bar should be aware of the current view context. | CLI |
+| ⬜ | 7.2.4.5 | Update `internal/tui/explorer.go` -- severity colors in table: Override the table row rendering to apply severity colors to the Severity column cells. HIGH rows show the severity cell in red, MED in orange/yellow, LOW in green. The Score column should also be tinted to match. Use the table's `StyleFunc` option (if available in bubbles table) or post-process the rendered output with ANSI color codes per severity. | CLI |
+| ⬜ | 7.2.4.6 | Update `internal/tui/detail.go` -- severity colors and enrichment display: The severity field should render in its color (already partially done). Add a new section "Enrichment Data" below the existing fields: show `Live: Yes/No` (green/red colored), `Resolved IPs: 1.2.3.4, 5.6.7.8`, `Hosting Provider: Cloudflare`, `HTTP Status: 200`, `Last Checked: 2026-02-24 14:30:00`. Show `Bookmarked: *` (gold star if bookmarked). Only display enrichment section if `LiveCheckedAt` is non-zero (enrichment has run). | CLI |
+| ⬜ | 7.2.4.7 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/...` passes clean. | CLI |
+
+#### 7.2.5 Batch Delete & Selection (CLI) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.5.1 | Update `internal/tui/explorer.go` -- multi-select state: Add `selected map[int]bool` field to `ExplorerModel` (maps row index to selected state). Add `selectAllActive bool` field. Handle spacebar key: toggle current row in `selected` map, move cursor down one row. Handle `a` key: select all visible rows (set every index in `selected`). Handle `A` key: deselect all (clear `selected` map). Update `hitsToRows` to prepend a checkbox column: `[x]` for selected rows, `[ ]` for unselected. Add the checkbox column to the table column definitions (width 4, first column). | CLI |
+| ⬜ | 7.2.5.2 | Update `internal/tui/explorer.go` -- delete operations: Handle `d` key: if current row is highlighted, show confirmation prompt "Delete hit for <domain>? (y/n)". On `y`, send a `tea.Cmd` that calls `store.DeleteHit(ctx, domain)` and then reloads hits. Handle `D` key: if `selected` has entries, show confirmation prompt "Delete N selected hits? (y/n)". On `y`, collect domains from selected indices, send a `tea.Cmd` that calls `store.DeleteHits(ctx, domains)`, clear `selected` map, reload hits. Add a `confirmAction string` field to ExplorerModel for the confirmation overlay state. Render the confirmation prompt as a simple overlay at the bottom of the table. | CLI |
+| ⬜ | 7.2.5.3 | Update `internal/tui/explorer.go` -- clear all with confirmation: Update the existing `C` key handler to show a confirmation prompt "Clear ALL hits? This cannot be undone. (y/n)". On `y`, call `store.ClearAll(ctx)` and reload. This replaces any existing clear behavior with a properly confirmed version. | CLI |
+| ⬜ | 7.2.5.4 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/...` passes clean. | CLI |
+
+#### 7.2.6 Bookmark/Flag System -- TUI (CLI) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.6.1 | Update `internal/tui/explorer.go` -- bookmark toggle: Handle `b` key: toggle bookmark on the currently highlighted row. Send a `tea.Cmd` that calls `store.SetBookmark(ctx, domain, !currentBookmarkState)`. On `BookmarkToggleMsg` received back, update the local hit's `Bookmarked` field and refresh the table row. Add a visual indicator: prepend a star character (e.g., `*` in gold/yellow via `StyleBookmarked`) to the Domain column for bookmarked hits. | CLI |
+| ⬜ | 7.2.6.2 | Update `internal/tui/filter.go` -- bookmark filter: Add a "Bookmarked" toggle field to the filter overlay. Cycle with left/right arrows between "" (all), "yes" (bookmarked only), "no" (unbookmarked only). Map to `QueryFilter.Bookmarked` in `buildFilter`. Display in the explorer filter bar: `bookmarked:yes` when active. | CLI |
+| ⬜ | 7.2.6.3 | Update `internal/tui/explorer.go` -- live domain indicator: In `hitsToRows`, if a hit has `IsLive == true`, render the domain text with `StyleLiveDomain` (green). In the detail view this is already handled by 7.2.4.6. In the explorer table, add a small `[L]` tag next to live domains or color the entire domain cell green. | CLI |
+| ⬜ | 7.2.6.4 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/...` passes clean. | CLI |
+
+#### 7.2.7 Backtrack & Enrichment CLI Flags (CLI) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.2.7.1 | Update `internal/cmd/watch.go`: Add `--backtrack` flag (int64, default 0) to the watch command. Pass the backtrack value through to the poller manager via config. Add flag description: "Start N entries behind the current log tip for immediate results (default: 0, start at tip)". Also wire the enrichment pipeline: after pollers start, create an `Enricher`, start it, and connect it to receive domains from the hit channel (tap the hit channel so enricher gets a copy of each scored domain). | CLI |
+| ⬜ | 7.2.7.2 | Update `internal/cmd/query.go`: Add `--bookmarked` flag (bool, default false). Add `--live-only` flag (bool, default false). Map both to the `QueryFilter` fields. Update the help text to document the new flags. | CLI |
+| ⬜ | 7.2.7.3 | Update `internal/cmd/output.go`: Extend `FormatTable` to show a bookmark indicator (`*` prefix) and live indicator (`[L]` suffix) on applicable rows. Extend `FormatJSON` and `FormatCSV` to include the new fields (is_live, resolved_ips, hosting_provider, http_status, bookmarked) in output. | CLI |
+| ⬜ | 7.2.7.4 | **BUILD CHECK** -- `go build ./cmd/ctsnare && go vet ./internal/cmd/... && golangci-lint run ./internal/cmd/...` passes clean. `./ctsnare watch --help` shows --backtrack flag. `./ctsnare query --help` shows --bookmarked and --live-only flags. | CLI |
+
+---
+
+### Merge Gate 3: Post Phase 7.2
+
+> All parallel work from Phase 7.2 STOPS here. No agent continues until merge is clean.
+
+#### Prerequisites
+- ⬜ BE (backend-engineer) has committed and pushed their worktree branch
+- ⬜ CLI (cli-engineer) has committed and pushed their worktree branch
+- ⬜ BE build verification passes in their worktree
+- ⬜ CLI build verification passes in their worktree
+
+#### Merge Protocol
+1. Lead session creates fresh branch or works on main
+2. Merge BE branch into main -- resolve any conflicts
+3. Merge CLI branch into main -- resolve any conflicts
+4. Run `go mod tidy` to reconcile any dependency differences (enrichment may need `golang.org/x/time` if rate limiter used)
+5. Run full verification: `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...`
+6. Fix any issues before proceeding (failing agent fixes their code)
+7. All agents pull fresh main before Phase 7.3
+
+#### Conflict Resolution Priority
+1. `internal/domain/` -- canonical source of truth (should have no conflicts -- frozen after Phase 7.1)
+2. `go.mod` / `go.sum` -- run `go mod tidy` on merged result
+3. `internal/tui/messages.go`, `internal/tui/styles.go`, `internal/tui/keys.go` -- frozen after 7.1, no conflicts expected
+4. `cmd/ctsnare/main.go` -- CLI agent's version takes precedence
+
+#### Post-Merge Verification
+- ⬜ `go build -o ctsnare ./cmd/ctsnare` succeeds
+- ⬜ `go vet ./...` reports zero issues
+- ⬜ `golangci-lint run ./...` reports zero issues
+- ⬜ `go test ./...` all tests pass
+- ⬜ `./ctsnare watch --help` shows --backtrack flag
+- ⬜ `./ctsnare query --help` shows --bookmarked and --live-only flags
+
+---
+
+### Phase 7.3: Enhancement Integration (Sequential)
+
+> Sequential. CLI agent (or lead) wires enrichment into TUI, connects discarded domain feed,
+> and ensures all new features work end-to-end.
+> Depends on: Merge Gate 3 (must pass clean)
+>
+> **Risk: MEDIUM** -- This is where the enrichment pipeline meets the TUI. Interface mismatches
+> between the enrichment results and TUI display surface here. Fix them immediately.
+
+#### File Ownership: CLI agent owns all files. BE agent available for consultation on enrichment/storage issues.
+
+#### 7.3.1 Wire Enrichment into Watch Command
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.3.1.1 | Update `internal/cmd/watch.go` `runTUI`: Create the enrichment channel (`enrichChan chan enrichment.EnrichResult`, buffered 256). Create the `Enricher` with store and enrichChan. Start the enricher goroutine (`enricher.Run(ctx)`). After each hit is sent to `hitChan`, also call `enricher.Enqueue(hit.Domain)` so every scored domain gets probed. Bridge the `enrichChan` to the TUI by creating a new `waitForEnrichment` tea.Cmd in the app model that reads from the channel and converts `EnrichResult` to `EnrichmentMsg`. | CLI |
+| ⬜ | 7.3.1.2 | Update `internal/cmd/watch.go` `runTUI`: Wire the discarded domain feed. In the poller, when a domain scores zero, send a `DiscardedDomainMsg` to the TUI. This requires adding a `discardChan chan<- string` parameter to the poller (or using the existing stats channel to piggyback discarded domain names). The simplest approach: add a `discardChan chan string` (buffered 256) alongside hitChan, pass it to the poller manager, and have pollers send discarded domains on it. In the app model, add a `waitForDiscard` tea.Cmd that reads from discardChan and sends `DiscardedDomainMsg`. | CLI |
+| ⬜ | 7.3.1.3 | Update `internal/tui/app.go`: Handle `EnrichmentMsg` in Update -- find the matching hit in the feed's hit buffer by domain name and update its enrichment fields (IsLive, ResolvedIPs, etc.). If the explorer is showing that hit, trigger a refresh. Handle `DiscardedDomainMsg` in Update -- forward to FeedModel. Handle `BookmarkToggleMsg` -- forward to ExplorerModel to refresh the affected row. Handle `DeleteHitsMsg` -- forward to ExplorerModel to reload hits from DB. Add `enrichChan` and `discardChan` fields to AppModel. Wire `waitForEnrichment` and `waitForDiscard` in `Init()`. | CLI |
+| ⬜ | 7.3.1.4 | Update `internal/cmd/watch.go` `runHeadless`: Wire enrichment in headless mode too. Create enricher, start it, enqueue domains from hitChan. Enrichment results are written to DB silently. Drain enrichChan in a background goroutine. Also wire the discardChan drain in headless mode. | CLI |
+| ⬜ | 7.3.1.5 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. | CLI |
+
+#### 7.3.2 End-to-End Integration Smoke Test
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.3.2.1 | Update `internal/cmd/integration_test.go`: Add integration tests for the new features: (1) Test backtrack mode -- start headless with --backtrack 100 against a mock CT log, verify it processes entries from tree_size-100. (2) Test bookmark workflow -- insert hits, bookmark one via store, query with --bookmarked, verify only bookmarked hit returned. (3) Test delete workflow -- insert hits, delete one, verify it is gone from query results. (4) Test enrichment fields in query output -- insert a hit with enrichment data, query as JSON, verify enrichment fields present. | CLI |
+| ⬜ | 7.3.2.2 | Update `internal/cmd/integration_test.go`: Test query with new flags: `--live-only` returns only hits where is_live=true. `--bookmarked` returns only bookmarked hits. Both flags together compose correctly. Test `db export --format jsonl` includes enrichment fields. Test `db export --format csv` includes enrichment column headers. | CLI |
+| ⬜ | 7.3.2.3 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -count=1 ./...` all pass. Manual smoke test: `./ctsnare watch --headless --backtrack 1000 --verbose` starts, processes backlogged entries, and enrichment probes run in background. Ctrl-C shuts down cleanly. | CLI |
+
+---
+
+### Phase 7.4: Enhancement Polish -- PARALLEL
+
+> PARALLEL. Two agents work simultaneously on test coverage and final TUI polish.
+> Depends on: Phase 7.3 (all tasks complete, full build passes clean)
+>
+> **Risk: LOW** -- QA adds test files only. CLI does final visual polish on TUI files it already owns.
+> No new shared file modifications.
+
+#### File Ownership (This Phase)
+
+| Agent | Owns (read/write) | Can Read (no write) |
+|-------|-------------------|-------------------|
+| QA (qa-engineer) | `*_test.go` files in all packages | All source files (read only) |
+| CLI (cli-engineer) | `internal/tui/` (visual polish only -- no new features) | All source files (read only) |
+
+**OFF LIMITS during this phase:** `go.mod`, `go.sum`, all non-test `.go` files (except `internal/tui/` for CLI), `.golangci.yml`, `internal/domain/`, `internal/enrichment/`, `internal/storage/`, `internal/poller/`, `internal/config/`
+
+#### 7.4.1 Test Coverage for Phase 7 Features (QA) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.4.1.1 | Create `internal/enrichment/enricher_integration_test.go`. Integration test using httptest.NewServer as a live domain and a non-routable address as dead domain. Verify full pipeline: enqueue domain, enricher probes it, store.UpdateEnrichment is called, enrichChan receives result. Verify rate limiting works end-to-end (5 concurrent, 1/sec rate). Verify graceful shutdown clears in-flight probes. | QA |
+| ⬜ | 7.4.1.2 | Expand `internal/storage/db_test.go` with Phase 7 edge cases: test bookmark toggle (set, unset, set again). Test DeleteHits with empty domain list (no-op). Test DeleteHits with domains that don't exist (no error). Test UpdateEnrichment for a domain that doesn't exist (no error or specific error). Test QueryHits with both Bookmarked and LiveOnly set simultaneously. Test QueryHits sorting by new columns (is_live, bookmarked, http_status). | QA |
+| ⬜ | 7.4.1.3 | Create `internal/poller/backtrack_test.go`. Dedicated tests for backtrack behavior: mock CT log with tree_size=10000, test backtrack=5000 starts at 5000, test backtrack=0 starts at 10000, test backtrack=20000 (exceeds tree_size) starts at 0, test backtrack with changing tree_size (initial STH returns 10000, poller starts at 5000, next STH returns 12000 -- poller should process 5000-12000). | QA |
+| ⬜ | 7.4.1.4 | Expand `internal/tui/app_test.go` with Phase 7 message handling: test EnrichmentMsg updates feed model hit's enrichment fields, test DiscardedDomainMsg arrives and is forwarded to feed, test BookmarkToggleMsg refreshes explorer, test DeleteHitsMsg triggers explorer reload. | QA |
+| ⬜ | 7.4.1.5 | **BUILD CHECK** -- `go test -v -count=1 -race ./...` all pass with zero failures. Run `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` and verify enrichment package has >70% coverage. | QA |
+
+#### 7.4.2 TUI Final Polish (CLI) [worktree]
+
+| Status | Task | Description | Agent |
+|--------|------|-------------|-------|
+| ⬜ | 7.4.2.1 | Polish `internal/tui/feed.go` -- tune the auto-scrolling behavior: Verify discarded domains fade correctly after 2 seconds. Ensure the viewport auto-scrolls to show the newest entries (viewport offset tracks the top of the content). When the user has manually scrolled up, disable auto-scroll until they scroll back to the bottom (so they can read old entries without being yanked). Add a `[LIVE]` indicator in the header when auto-scroll is active, `[PAUSED]` when manual scroll is active. | CLI |
+| ⬜ | 7.4.2.2 | Polish `internal/tui/explorer.go` -- selection UX refinement: Ensure multi-select state survives sort changes and filter application (clear selection on filter change, preserve on sort). Show selection count in the filter bar: "3 selected" when items are selected. Verify delete confirmation works correctly with the confirmation overlay and doesn't swallow subsequent key presses. | CLI |
+| ⬜ | 7.4.2.3 | Polish `internal/tui/feed.go` and `internal/tui/explorer.go` -- help bar consistency: Ensure both views have a consistent help bar at the bottom. Feed view: `Tab=views | q=quit | ?=help | j/k=scroll`. Explorer view: `Tab=views | q=quit | s=sort | f=filter | b=mark | Space=select | d=delete | Enter=detail`. Detail view: `Esc=back | j/k=scroll`. The help bar should always show the keybindings relevant to the current view. | CLI |
+| ⬜ | 7.4.2.4 | Polish all TUI views -- overall consistency pass: Verify severity colors are consistent across feed, explorer, and detail views. Verify live domain highlighting (green) appears in all three views. Verify bookmark star appears in explorer and detail views. Verify the status bar width fills the terminal. Test with narrow terminals (80 cols) and wide terminals (200+ cols) to ensure layout degrades gracefully. | CLI |
+| ⬜ | 7.4.2.5 | **BUILD CHECK** -- `go build ./internal/tui/... && go vet ./internal/tui/... && go test ./internal/tui/...` passes clean. | CLI |
+
+---
+
+### Merge Gate 4: Post Phase 7.4
+
+> All parallel work from Phase 7.4 STOPS here. No agent continues until merge is clean.
+
+#### Prerequisites
+- ⬜ QA has committed and pushed their worktree branch (test files only)
+- ⬜ CLI has committed and pushed their worktree branch (TUI polish only)
+- ⬜ QA build verification passes in their worktree
+- ⬜ CLI build verification passes in their worktree
+
+#### Merge Protocol
+1. Lead session merges QA branch into main (test files only -- should be conflict-free)
+2. Lead session merges CLI branch into main (TUI files only -- should be conflict-free)
+3. Run `go mod tidy` if any test dependencies were added
+4. Run full verification: `make check` (or equivalent: build + vet + lint + test)
+5. Fix any issues before proceeding
+6. Tag as `v0.6.0` enhancement milestone
+
+#### Conflict Resolution Priority
+1. Test files -- should never conflict (QA is the only agent writing tests)
+2. TUI files -- should never conflict (CLI is the only agent modifying TUI in this phase)
+3. `go.mod` / `go.sum` -- run `go mod tidy` on merged result
+
+#### Post-Merge Verification
+- ⬜ `make check` passes (build + vet + lint + test with race detection)
+- ⬜ All new tests from QA pass (zero data races)
+- ⬜ `./ctsnare watch --help` shows all new flags (--backtrack)
+- ⬜ `./ctsnare query --help` shows all new flags (--bookmarked, --live-only)
+- ⬜ `make build` produces working binary
+- ⬜ Manual smoke test: TUI severity colors, auto-scrolling feed, batch delete, bookmarks, enrichment display all work
+
+---
+
 ## Parallelization Map
 
 ```
@@ -621,6 +943,52 @@ Phase 6: Documentation (Sequential, DOC)
 |                                                                     |
 |                                                                     v
 |                                                         6.4 Changelog & Release Milestone
+|
+|============== All Phase 6 tasks complete, build passes clean ===============
+|
+Phase 7: Enhancements
+|
+|-- Phase 7.1: Enhancement Foundation (Sequential, BE)
+|   |
+|   |-- 7.1.1 Domain Type Extensions
+|   |-- 7.1.2 Storage Schema Migration
+|   |-- 7.1.3 TUI Message Types & Shared Contracts
+|   |-- 7.1.4 Enrichment Package Scaffold
+|   |
+|   | ** Domain types REFROZEN after 7.1 **
+|   |
+|   |============== All Phase 7.1 tasks complete, build passes clean ===========
+|   |
+|   Phase 7.2: Enhancement Build (PARALLEL, worktrees)
+|   |
+|   |-- BE (backend-engineer) worktree:        CLI (cli-engineer) worktree:
+|   |   |                                      |
+|   |   |-- 7.2.1 Enrichment Pipeline          |-- 7.2.4 TUI Visual Overhaul
+|   |   |-- 7.2.2 Backtrack Mode               |-- 7.2.5 Batch Delete & Selection
+|   |   |-- 7.2.3 Storage & Export Extensions   |-- 7.2.6 Bookmark/Flag System TUI
+|   |   |                                      |-- 7.2.7 Backtrack & Enrichment CLI
+|   |   |                                      |
+|   |   v                                      v
+|   |
+|   |================ MERGE GATE 3 (Lead merges, full build) ==================
+|   |
+|   Phase 7.3: Enhancement Integration (Sequential, CLI)
+|   |-- 7.3.1 Wire Enrichment into Watch Command
+|   |-- 7.3.2 End-to-End Integration Smoke Test
+|   |
+|   |============== All Phase 7.3 tasks complete, build passes clean ===========
+|   |
+|   Phase 7.4: Enhancement Polish (PARALLEL, worktrees)
+|   |
+|   |-- QA (qa-engineer) worktree:             CLI (cli-engineer) worktree:
+|   |   |                                      |
+|   |   |-- 7.4.1 Test Coverage                |-- 7.4.2 TUI Final Polish
+|   |   |                                      |
+|   |   v                                      v
+|   |
+|   |================ MERGE GATE 4 (Lead merges, full build) ==================
+|   |
+|   v0.6.0 Enhancement Milestone
 ```
 
 ---
@@ -634,7 +1002,7 @@ See `.project/changelog.md` for detailed version history.
 ## Notes & Decisions
 
 ### Architecture Decisions
-- **Domain types frozen after Phase 1**: All agents build against `internal/domain/` types established in Phase 1. Changes to domain types after Phase 1 require a sequential phase and all agents must re-sync. This prevents interface mismatch bugs.
+- **Domain types frozen after Phase 1, briefly unfrozen in Phase 7.1**: All agents build against `internal/domain/` types established in Phase 1. Types were frozen through Phases 2-6. Phase 7.1 temporarily unfreezes them to add enrichment, bookmark, and liveness fields. After Phase 7.1, types are REFROZEN for Phase 7.2+ parallel work. This controlled unfreeze minimizes ripple effects.
 - **CLI agent owns all Cobra commands**: Even though the watch command wires backend components, the CLI agent owns the command files. This avoids two agents modifying the same file. The integration wiring happens in Phase 3 (sequential) to avoid conflicts.
 - **Storage interface for TUI decoupling**: The TUI never calls storage directly during Phase 2. It receives hits via channels and uses the `Store` interface only in Phase 3 when the explorer view is wired. This allows the CLI agent to build TUI without a working database.
 - **Separate export from storage query**: Export functions (JSONL, CSV) live in storage package but use QueryHits internally. This keeps the export logic close to the data and avoids a separate export package.
@@ -642,12 +1010,16 @@ See `.project/changelog.md` for detailed version history.
 ### Dependency Management
 - All `go get` commands run in Phase 1 only. No new dependencies added during parallel phases.
 - If a dependency is discovered to be needed during Phase 2, the agent notes it and it's added at Merge Gate 1.
+- Phase 7 may require `golang.org/x/time/rate` for the enrichment rate limiter -- add at Merge Gate 3 if needed.
 - `go mod tidy` runs at every merge gate to keep go.sum clean.
 
 ### Known Risks
 - **CT log shard discovery**: The PRD mentions automatic discovery of active shards. For v1, hard-code current shard URLs in default config. Shard rotation is a future enhancement.
 - **Certificate parsing edge cases**: Some CT log entries contain pre-certificates, redacted certificates, or non-standard extensions. The parser should handle these gracefully (skip with warning, never panic).
 - **SQLite concurrent write performance**: WAL mode handles concurrent reads well but writes are serialized. The poller manager's multiple goroutines all write through a single DB handle. This should be fine for expected throughput (hundreds of hits/sec) but could become a bottleneck at scale.
+- **Enrichment probe rate limiting (Phase 7)**: The liveness probe makes HTTP requests to potentially malicious domains. Rate limiting is critical -- 5 concurrent / 1 req/sec prevents abuse. The enricher must never block the polling pipeline; it runs independently and writes back to the DB.
+- **Schema migration backward compatibility (Phase 7)**: Adding columns to an existing SQLite table requires idempotent ALTER TABLE statements. The migration must handle the case where the DB already has the new columns (e.g., from a previous run) without erroring.
+- **Domain type unfreeze risk (Phase 7.1)**: Unfreezing domain types is the highest-risk operation in Phase 7. All new fields use zero-value defaults and all new interface methods are additive. Existing code paths must continue to work without modification -- new fields are opt-in.
 
 ### Conflict Zone Incidents
 - [None yet -- log any merge conflicts or agent collisions here for future reference]
@@ -655,5 +1027,6 @@ See `.project/changelog.md` for detailed version history.
 ---
 
 *Last updated: 2026-02-24*
-*Current Phase: Phase 6 COMPLETE -- all phases done*
-*Milestone: v0.5.0 Feature Complete -- README, Go doc comments, CLI help text, changelog finalized*
+*Current Phase: Phase 7.1 -- Enhancement Foundation (pending)*
+*Previous Milestone: v0.5.0 Feature Complete -- README, Go doc comments, CLI help text, changelog finalized*
+*Next Milestone: v0.6.0 Enhancement Complete -- enrichment pipeline, TUI overhaul, backtrack mode, batch delete, bookmarks*

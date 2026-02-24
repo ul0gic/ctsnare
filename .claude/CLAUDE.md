@@ -100,6 +100,10 @@ ctsnare/
 |   |   |-- messages.go      # Shared message types (HitMsg, StatsMsg, etc.)
 |   |   |-- styles.go        # Lipgloss style definitions
 |   |   |-- keys.go          # Key binding definitions
+|   |-- enrichment/          # Domain enrichment pipeline
+|   |   |-- enricher.go      # Rate-limited worker pool, queue, store integration
+|   |   |-- dns.go           # DNS resolution, CIDR matching, provider detection
+|   |   |-- http.go          # HTTP HEAD liveness probe (HTTPS/HTTP fallback)
 |   |-- config/              # Configuration loading
 |       |-- config.go        # TOML parsing, defaults, flag merging
 |-- go.mod

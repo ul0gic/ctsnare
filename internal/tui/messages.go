@@ -41,4 +41,33 @@ type PollStats struct {
 
 	// ActiveLogs is the number of CT log pollers currently running.
 	ActiveLogs int
+
+	// HitsPerMin is the rolling rate of new hits stored per minute.
+	HitsPerMin float64
+}
+
+// EnrichmentMsg is sent when the enrichment pipeline completes a liveness probe for a domain.
+type EnrichmentMsg struct {
+	Domain          string
+	IsLive          bool
+	ResolvedIPs     []string
+	HostingProvider string
+	HTTPStatus      int
+}
+
+// BookmarkToggleMsg is sent when a hit's bookmark state has been toggled.
+type BookmarkToggleMsg struct {
+	Domain     string
+	Bookmarked bool
+}
+
+// DeleteHitsMsg is sent when one or more hits have been deleted from storage.
+type DeleteHitsMsg struct {
+	Domains []string
+}
+
+// DiscardedDomainMsg is sent when a domain scored zero and was discarded.
+// Used for the activity feed to show scanning activity even when no hits are produced.
+type DiscardedDomainMsg struct {
+	Domain string
 }

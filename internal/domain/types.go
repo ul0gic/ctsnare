@@ -62,6 +62,30 @@ type Hit struct {
 
 	// UpdatedAt is when this hit was last updated (e.g., after a duplicate domain appears in a new cert).
 	UpdatedAt time.Time
+
+	// IsLive indicates the domain responded to an HTTP probe (HEAD request).
+	// Populated by the enrichment pipeline; false by default.
+	IsLive bool
+
+	// ResolvedIPs contains DNS A/AAAA records for the domain.
+	// Populated by the enrichment pipeline; nil by default.
+	ResolvedIPs []string
+
+	// HostingProvider is the detected CDN or hosting provider from reverse DNS or IP range matching.
+	// Populated by the enrichment pipeline; empty string by default.
+	HostingProvider string
+
+	// HTTPStatus is the HTTP status code returned by the liveness probe.
+	// Zero when no probe has been performed.
+	HTTPStatus int
+
+	// LiveCheckedAt is when the enrichment liveness probe was last run.
+	// Zero value when no probe has been performed.
+	LiveCheckedAt time.Time
+
+	// Bookmarked indicates the user has flagged this hit as interesting.
+	// False by default.
+	Bookmarked bool
 }
 
 // CTLogEntry represents a raw entry from a Certificate Transparency log before scoring.

@@ -12,6 +12,9 @@ var (
 	colorText         = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FAFAFA"}
 	colorStatusBg     = lipgloss.AdaptiveColor{Light: "#DDDDDD", Dark: "#333333"}
 	colorStatusFg     = lipgloss.AdaptiveColor{Light: "#333333", Dark: "#DDDDDD"}
+	colorLive         = lipgloss.AdaptiveColor{Light: "#008800", Dark: "#22DD22"}
+	colorDiscarded    = lipgloss.AdaptiveColor{Light: "#999999", Dark: "#555555"}
+	colorBookmark     = lipgloss.AdaptiveColor{Light: "#CC8800", Dark: "#FFD700"}
 )
 
 // StyleHighSeverity renders high-severity items in bold red.
@@ -65,6 +68,24 @@ var StyleTitle = lipgloss.NewStyle().
 var StyleBorder = lipgloss.NewStyle().
 	BorderStyle(lipgloss.RoundedBorder()).
 	BorderForeground(colorSubtle)
+
+// StyleLiveDomain renders live domains in bold green to indicate successful liveness probe.
+var StyleLiveDomain = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(colorLive)
+
+// StyleDiscardedDomain renders discarded (zero-score) domains in dim gray.
+var StyleDiscardedDomain = lipgloss.NewStyle().
+	Foreground(colorDiscarded)
+
+// StyleBookmarked renders the bookmark indicator in gold/yellow.
+var StyleBookmarked = lipgloss.NewStyle().
+	Foreground(colorBookmark)
+
+// StyleSelectedCheckbox renders the multi-select checkbox indicator for explorer rows.
+var StyleSelectedCheckbox = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(colorLive)
 
 // SeverityStyle returns the appropriate style for the given severity level.
 func SeverityStyle(severity string) lipgloss.Style {

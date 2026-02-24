@@ -4,19 +4,25 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all key bindings for the TUI application.
 type KeyMap struct {
-	Quit     key.Binding
-	Tab      key.Binding
-	Search   key.Binding
-	Sort     key.Binding
-	Filter   key.Binding
-	Enter    key.Binding
-	Escape   key.Binding
-	Clear    key.Binding
-	Help     key.Binding
-	Up       key.Binding
-	Down     key.Binding
-	PageUp   key.Binding
-	PageDown key.Binding
+	Quit          key.Binding
+	Tab           key.Binding
+	Search        key.Binding
+	Sort          key.Binding
+	Filter        key.Binding
+	Enter         key.Binding
+	Escape        key.Binding
+	Clear         key.Binding
+	Help          key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	PageUp        key.Binding
+	PageDown      key.Binding
+	Bookmark      key.Binding
+	Delete        key.Binding
+	SelectToggle  key.Binding
+	SelectAll     key.Binding
+	DeselectAll   key.Binding
+	ConfirmDelete key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings for the application.
@@ -74,12 +80,36 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("pgdown", "ctrl+d"),
 			key.WithHelp("pgdn", "page down"),
 		),
+		Bookmark: key.NewBinding(
+			key.WithKeys("b"),
+			key.WithHelp("b", "bookmark"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete"),
+		),
+		SelectToggle: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "select"),
+		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "select all"),
+		),
+		DeselectAll: key.NewBinding(
+			key.WithKeys("A"),
+			key.WithHelp("A", "deselect all"),
+		),
+		ConfirmDelete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete selected"),
+		),
 	}
 }
 
 // ShortHelp returns the key bindings shown in the compact help view.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Quit, k.Tab, k.Help}
+	return []key.Binding{k.Quit, k.Tab, k.Bookmark, k.Help}
 }
 
 // FullHelp returns the key bindings shown in the expanded help view.
@@ -88,5 +118,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Tab, k.Search, k.Sort, k.Filter},
 		{k.Enter, k.Escape, k.Clear, k.Quit},
+		{k.Bookmark, k.Delete, k.SelectToggle, k.SelectAll, k.DeselectAll, k.ConfirmDelete},
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Pure Go SQLite driver -- no CGo, compiles into the binary.
 	_ "modernc.org/sqlite"
@@ -57,7 +58,43 @@ func NewDB(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
 
+	// Run V2 migration (enrichment + bookmark columns). Each ALTER TABLE
+	// statement is executed individually so that already-existing columns
+	// are silently skipped (idempotent).
+	if err := runMigrationV2(sqlDB); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("running V2 migration: %w", err)
+	}
+
 	return &DB{db: sqlDB}, nil
+}
+
+// runMigrationV2 adds enrichment and bookmark columns to the hits table.
+// Each ALTER TABLE is run individually; "duplicate column name" errors
+// are silently ignored so the migration is idempotent.
+func runMigrationV2(sqlDB *sql.DB) error {
+	// Execute each ALTER TABLE statement individually.
+	stmts := strings.Split(migrationV2SQL, ";")
+	for _, stmt := range stmts {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		if _, err := sqlDB.Exec(stmt); err != nil {
+			// SQLite returns "duplicate column name: X" when the column already exists.
+			// This is expected on subsequent runs -- skip silently.
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("executing migration statement: %w", err)
+		}
+	}
+
+	// Create indexes (IF NOT EXISTS makes these naturally idempotent).
+	if _, err := sqlDB.Exec(migrationV2IndexSQL); err != nil {
+		return fmt.Errorf("creating V2 indexes: %w", err)
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.

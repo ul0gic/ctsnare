@@ -748,3 +748,213 @@ func TestSanitizeSortColumn_SQLInjectionAttempts(t *testing.T) {
 			"injection attempt %q should fall back to created_at", attack)
 	}
 }
+
+// --- Phase 7.1 tests: enrichment, bookmark, delete ---
+
+func TestMigrationV2_NewColumnsExist(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert a hit and verify all new columns have their zero-value defaults.
+	h := testHit("migration-test.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	got := hits[0]
+	assert.False(t, got.IsLive, "is_live should default to false")
+	assert.Empty(t, got.ResolvedIPs, "resolved_ips should default to empty")
+	assert.Empty(t, got.HostingProvider, "hosting_provider should default to empty")
+	assert.Equal(t, 0, got.HTTPStatus, "http_status should default to 0")
+	assert.True(t, got.LiveCheckedAt.IsZero(), "live_checked_at should default to zero time")
+	assert.False(t, got.Bookmarked, "bookmarked should default to false")
+}
+
+func TestMigrationV2_Idempotent(t *testing.T) {
+	// Opening a second connection to the same DB should not fail
+	// because migrations are idempotent.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "idempotent.db")
+
+	db1, err := NewDB(dbPath)
+	require.NoError(t, err)
+	db1.Close()
+
+	// Reopen -- migration runs again, should not error.
+	db2, err := NewDB(dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+}
+
+func TestSetBookmark(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("bookmark-me.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	// Bookmark the hit.
+	err := db.SetBookmark(ctx, "bookmark-me.com", true)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.True(t, hits[0].Bookmarked, "hit should be bookmarked after SetBookmark(true)")
+
+	// Remove bookmark.
+	err = db.SetBookmark(ctx, "bookmark-me.com", false)
+	require.NoError(t, err)
+
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.False(t, hits[0].Bookmarked, "hit should not be bookmarked after SetBookmark(false)")
+}
+
+func TestQueryHits_BookmarkedFilter(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h1 := testHit("bookmarked.com", 6, domain.SeverityHigh)
+	h2 := testHit("not-bookmarked.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h1))
+	require.NoError(t, db.InsertHit(ctx, h2))
+
+	require.NoError(t, db.SetBookmark(ctx, "bookmarked.com", true))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "bookmarked.com", hits[0].Domain)
+}
+
+func TestQueryHits_LiveOnlyFilter(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h1 := testHit("live.com", 6, domain.SeverityHigh)
+	h2 := testHit("dead.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h1))
+	require.NoError(t, db.InsertHit(ctx, h2))
+
+	// Mark one as live via enrichment.
+	require.NoError(t, db.UpdateEnrichment(ctx, "live.com", true, []string{"1.2.3.4"}, "cloudflare", 200))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{LiveOnly: true})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "live.com", hits[0].Domain)
+}
+
+func TestDeleteHit(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("delete-me.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	err := db.DeleteHit(ctx, "delete-me.com")
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, hits, "hit should be gone after DeleteHit")
+}
+
+func TestDeleteHit_Nonexistent(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Deleting a domain that doesn't exist should not error.
+	err := db.DeleteHit(ctx, "nonexistent.com")
+	require.NoError(t, err)
+}
+
+func TestDeleteHits_Batch(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		h := testHit(fmt.Sprintf("batch-%d.com", i), i+1, domain.SeverityLow)
+		require.NoError(t, db.InsertHit(ctx, h))
+	}
+
+	// Delete 3 of the 5 hits.
+	err := db.DeleteHits(ctx, []string{"batch-0.com", "batch-2.com", "batch-4.com"})
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{SortBy: "domain", SortDir: "ASC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 2, "should have 2 remaining hits")
+	assert.Equal(t, "batch-1.com", hits[0].Domain)
+	assert.Equal(t, "batch-3.com", hits[1].Domain)
+}
+
+func TestDeleteHits_EmptySlice(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("keep.com", 4, domain.SeverityMed)))
+
+	// Deleting with empty slice should be a no-op.
+	err := db.DeleteHits(ctx, []string{})
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 1, "no hits should be deleted")
+}
+
+func TestUpdateEnrichment_Roundtrip(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("enrich-me.com", 6, domain.SeverityHigh)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	ips := []string{"104.16.0.1", "104.16.0.2", "2606:4700::1"}
+	err := db.UpdateEnrichment(ctx, "enrich-me.com", true, ips, "cloudflare", 200)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	got := hits[0]
+	assert.True(t, got.IsLive, "should be marked live")
+	assert.Equal(t, ips, got.ResolvedIPs, "resolved IPs should roundtrip")
+	assert.Equal(t, "cloudflare", got.HostingProvider)
+	assert.Equal(t, 200, got.HTTPStatus)
+	assert.False(t, got.LiveCheckedAt.IsZero(), "live_checked_at should be set")
+}
+
+func TestUpdateEnrichment_NilIPs(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("no-ips.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	err := db.UpdateEnrichment(ctx, "no-ips.com", false, nil, "unknown", 0)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	got := hits[0]
+	assert.False(t, got.IsLive)
+	assert.Equal(t, "unknown", got.HostingProvider)
+	assert.Equal(t, 0, got.HTTPStatus)
+}
+
+func TestSanitizeSortColumn_NewColumns(t *testing.T) {
+	newCols := []string{"is_live", "bookmarked", "http_status", "live_checked_at"}
+	for _, col := range newCols {
+		result := sanitizeSortColumn(col)
+		assert.Equal(t, col, result, "new column %q should be allowed", col)
+	}
+}

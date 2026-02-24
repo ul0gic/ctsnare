@@ -40,6 +40,20 @@ type Store interface {
 	// ClearSession removes all hit records tagged with the given session name.
 	ClearSession(ctx context.Context, session string) error
 
+	// SetBookmark sets or clears the bookmark flag on a hit identified by domain.
+	SetBookmark(ctx context.Context, domain string, bookmarked bool) error
+
+	// DeleteHit removes a single hit identified by domain.
+	DeleteHit(ctx context.Context, domain string) error
+
+	// DeleteHits removes multiple hits identified by their domains.
+	// Uses a transaction for atomicity.
+	DeleteHits(ctx context.Context, domains []string) error
+
+	// UpdateEnrichment updates the enrichment fields on a hit identified by domain.
+	// Serializes resolvedIPs as a JSON array in storage.
+	UpdateEnrichment(ctx context.Context, domain string, isLive bool, resolvedIPs []string, hostingProvider string, httpStatus int) error
+
 	// Close releases the underlying database connection. Must be called when
 	// the store is no longer needed.
 	Close() error

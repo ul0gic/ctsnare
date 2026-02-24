@@ -7,6 +7,36 @@
 
 ---
 
+## [0.6.0-alpha] - 2026-02-24 — Enhancement Foundation (Phase 7.1)
+
+### Added — BE (backend-engineer) Phase 7.1: Enhancement Foundation
+
+#### Domain Type Extensions (7.1.1)
+- Extended `Hit` struct with enrichment fields: `IsLive`, `ResolvedIPs`, `HostingProvider`, `HTTPStatus`, `LiveCheckedAt`, `Bookmarked` — all zero-value safe
+- Extended `QueryFilter` with `Bookmarked` and `LiveOnly` filter fields
+- Extended `Store` interface with `SetBookmark`, `DeleteHit`, `DeleteHits`, `UpdateEnrichment` methods
+
+#### Storage Schema Migration (7.1.2)
+- Idempotent V2 schema migration adding 6 new columns to the `hits` table with partial indexes on `bookmarked` and `is_live`
+- Full CRUD for bookmark toggle, single/batch delete, and enrichment updates
+- Extended `UpsertHit`, `InsertHit`, `QueryHits`, and `scanHit` for all new fields
+- `sanitizeSortColumn` now accepts `is_live`, `bookmarked`, `http_status`, `live_checked_at`
+- 12 new storage tests covering migration idempotency, bookmark CRUD, delete single/batch, enrichment roundtrip, and new query filters
+
+#### TUI Message Types & Shared Contracts (7.1.3)
+- New Bubble Tea message types: `EnrichmentMsg`, `BookmarkToggleMsg`, `DeleteHitsMsg`, `DiscardedDomainMsg`
+- Added `HitsPerMin` field to `PollStats`
+- New Lipgloss styles: `StyleLiveDomain`, `StyleDiscardedDomain`, `StyleBookmarked`, `StyleSelectedCheckbox` with adaptive color constants
+- New key bindings: Bookmark (b), Delete (d), SelectToggle (space), SelectAll (a), DeselectAll (A), ConfirmDelete (D)
+
+#### Enrichment Package Scaffold (7.1.4)
+- New `internal/enrichment/` package with rate-limited worker pool (5 workers, 5 req/sec global rate via `x/time/rate`)
+- DNS resolver with CIDR range matching for Cloudflare, Fastly, Akamai, DigitalOcean and reverse DNS patterns for AWS, GCP, Azure
+- HTTP liveness probe with HTTPS-first, HTTP-fallback, HEAD-only, 3-redirect limit, 5s timeout
+- Added `golang.org/x/time` dependency
+
+---
+
 ## [0.5.0] - 2026-02-24 — Feature Complete
 
 ### Added — DOC (documentation-engineer) Phase 6: Documentation

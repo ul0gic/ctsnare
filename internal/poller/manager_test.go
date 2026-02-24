@@ -58,6 +58,16 @@ func (m *mockStore) ClearAll(_ context.Context) error { return nil }
 
 func (m *mockStore) ClearSession(_ context.Context, _ string) error { return nil }
 
+func (m *mockStore) SetBookmark(_ context.Context, _ string, _ bool) error { return nil }
+
+func (m *mockStore) DeleteHit(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) DeleteHits(_ context.Context, _ []string) error { return nil }
+
+func (m *mockStore) UpdateEnrichment(_ context.Context, _ string, _ bool, _ []string, _ string, _ int) error {
+	return nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // newMockCTLogServer creates a test HTTP server that responds to CT log API endpoints.

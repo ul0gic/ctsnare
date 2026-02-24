@@ -45,6 +45,14 @@ type QueryFilter struct {
 	// SortDir is the sort direction: "ASC" or "DESC" (case-insensitive).
 	// Any other value defaults to "DESC".
 	SortDir string
+
+	// Bookmarked filters to only bookmarked hits when true.
+	// False (default) means no bookmark filter.
+	Bookmarked bool
+
+	// LiveOnly filters to only live domains (those that responded to HTTP probe) when true.
+	// False (default) means no liveness filter.
+	LiveOnly bool
 }
 
 // DBStats contains aggregate statistics about stored hits.
