@@ -1,4 +1,4 @@
-# [Project Name] - Changelog
+# ctsnare — Changelog
 
 > **Document Location:** `.project/changelog.md`
 >
@@ -10,57 +10,26 @@
 ## [Unreleased]
 
 ### Added
-- [New feature or capability]
-
-### Changed
-- [Changes to existing functionality]
-
-### Fixed
-- [Bug fixes]
-
-### Removed
-- [Removed features]
+- (Phase 2 work pending)
 
 ---
 
-## [0.3.0] - YYYY-MM-DD
+## [0.1.0] - 2026-02-24
 
 ### Added
-- Feature Module A with core business logic
-- Input validation for all user inputs
-- Service layer architecture
+- Project scaffold: Go 1.26 module, directory structure, entry point
+- Production dependencies: Cobra, Bubbletea, Lipgloss, Bubbles, modernc.org/sqlite, BurntSushi/toml
+- Dev dependencies: testify
+- Core domain types: Hit, Severity, CTLogEntry, ScoredDomain
+- Core interfaces: Scorer, Store, ProfileLoader
+- Query types: QueryFilter, DBStats, KeywordCount
+- Profile type: Profile struct
+- Cobra root command with persistent flags (--config, --db, --verbose)
+- golangci-lint configuration (errcheck, govet, staticcheck, unused, gosimple, ineffassign, gofmt, goimports)
+- .gitignore for binary, database, and build artifacts
 
-### Changed
-- Refactored data models for better type safety
-
-### Fixed
-- Build warnings in configuration module
-
----
-
-## [0.2.0] - YYYY-MM-DD
-
-### Added
-- Project scaffolding and directory structure
-- Build tooling configuration
-- Linting and formatting setup
-- Base configuration files
-- Environment variable handling
-
-### Changed
-- Updated dependencies to latest stable versions
-
----
-
-## [0.1.0] - YYYY-MM-DD
-
-### Added
-- Initial project setup
-- `.project/` documentation structure
-- Product Requirements Document (prd.md)
-- Tech Stack documentation (tech-stack.md)
-- Build Plan with task tracking (build-plan.md)
-- This changelog
+### Phase
+- Phase 1: Foundation — COMPLETE
 
 ---
 
@@ -91,9 +60,10 @@
 |---------|-----------|------|
 | 1.0.0 | Production Release | TBD |
 | 0.5.0 | Feature Complete | TBD |
-| 0.3.0 | Core Features | YYYY-MM-DD |
-| 0.1.0 | Project Setup | YYYY-MM-DD |
+| 0.3.0 | Integration Complete | TBD |
+| 0.2.0 | Core Engine Complete | TBD |
+| 0.1.0 | Foundation Complete | 2026-02-24 |
 
 ---
 
-*Last updated: YYYY-MM-DD*
+*Last updated: 2026-02-24*

@@ -1,2 +1,2 @@
-// Package storage implements SQLite-backed persistence for cert-hunter.
+// Package storage implements SQLite-backed persistence for ctsnare.
 package storage

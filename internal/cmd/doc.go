@@ -1,2 +1,2 @@
-// Package cmd provides the CLI command definitions for cert-hunter.
+// Package cmd provides the CLI command definitions for ctsnare.
 package cmd

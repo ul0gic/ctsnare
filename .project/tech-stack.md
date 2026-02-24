@@ -1,4 +1,4 @@
-# cert-hunter — Tech Stack
+# ctsnare — Tech Stack
 
 > **Document Location:** `.project/tech-stack.md`
 >
@@ -149,10 +149,10 @@
 
 ```bash
 # Development (run directly)
-go run ./cmd/cert-hunter
+go run ./cmd/ctsnare
 
 # Production build
-go build -o cert-hunter ./cmd/cert-hunter
+go build -o ctsnare ./cmd/ctsnare
 
 # Testing
 go test ./...
@@ -171,14 +171,14 @@ gofmt -w .
 ### Code Organization
 
 ```
-cert-hunter/
+ctsnare/
 ├── .project/                # Project documentation
 │   ├── prd.md
 │   ├── tech-stack.md
 │   ├── build-plan.md
 │   └── changelog.md
 ├── cmd/
-│   └── cert-hunter/
+│   └── ctsnare/
 │       └── main.go          # Entry point — Cobra root command setup
 ├── internal/
 │   ├── cmd/                 # Cobra subcommand definitions
@@ -229,14 +229,14 @@ cert-hunter/
 
 ### Required Environment Variables
 
-None. cert-hunter is a zero-config tool. Everything is configured via CLI flags or optional TOML config file.
+None. ctsnare is a zero-config tool. Everything is configured via CLI flags or optional TOML config file.
 
 ### Configuration Files
 
 | File | Purpose |
 |------|---------|
-| `~/.config/cert-hunter/config.toml` | Optional user configuration (profiles, log URLs, defaults) |
-| `~/.local/share/cert-hunter/cert-hunter.db` | SQLite database (auto-created, XDG-compliant) |
+| `~/.config/ctsnare/config.toml` | Optional user configuration (profiles, log URLs, defaults) |
+| `~/.local/share/ctsnare/ctsnare.db` | SQLite database (auto-created, XDG-compliant) |
 
 ---
 

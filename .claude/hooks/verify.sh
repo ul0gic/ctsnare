@@ -8,9 +8,10 @@
 # Uncomment and edit the commands that apply
 # ============================================================
 
-# BUILD_CMD="npm run build"
-# TEST_CMD="npm run test"
-# LINT_CMD="npm run lint"
+export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
+BUILD_CMD="go build -o ctsnare ./cmd/ctsnare"
+TEST_CMD="go test ./..."
+LINT_CMD="go vet ./..."
 
 # ============================================================
 # VERIFICATION LOGIC (no changes needed below)

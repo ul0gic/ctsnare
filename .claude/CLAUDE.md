@@ -1,4 +1,4 @@
-# cert-hunter
+# ctsnare
 
 > Go CLI tool that monitors Certificate Transparency logs in real-time, scores domains against keyword profiles, stores hits in embedded SQLite, and provides a TUI dashboard + CLI query interface.
 
@@ -16,10 +16,10 @@ Read these before making changes:
 
 ```bash
 # Development (run directly)
-go run ./cmd/cert-hunter
+go run ./cmd/ctsnare
 
 # Build
-go build -o cert-hunter ./cmd/cert-hunter
+go build -o ctsnare ./cmd/ctsnare
 
 # Test
 go test ./...
@@ -37,13 +37,13 @@ gofmt -w .
 go vet ./...
 
 # Full verification (run at merge gates)
-go build -o cert-hunter ./cmd/cert-hunter && go vet ./... && golangci-lint run ./... && go test ./...
+go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...
 ```
 
 ## Project Structure
 
 ```
-cert-hunter/
+ctsnare/
 |-- .project/                # Project documentation
 |   |-- prd.md               # Product Requirements Document
 |   |-- tech-stack.md        # Technology choices and rationale
@@ -52,7 +52,7 @@ cert-hunter/
 |   |-- issues/              # Issue tracking
 |-- .claude/                 # Agent and rule definitions
 |-- cmd/
-|   |-- cert-hunter/
+|   |-- ctsnare/
 |       |-- main.go          # Entry point — calls internal/cmd.Execute()
 |-- internal/
 |   |-- domain/              # Core types, interfaces, contracts (FROZEN after Phase 1)

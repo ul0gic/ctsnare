@@ -6,13 +6,13 @@
 > Keep this document as the single source of truth for what we're building.
 
 ---
-# cert-hunter — Product Requirements Document
+# ctsnare — Product Requirements Document
 
 ## Overview
 
-**cert-hunter** is a compiled Go CLI tool that monitors Certificate Transparency logs in real-time, scores newly issued domains against configurable keyword profiles, stores hits in an embedded SQLite database, and provides both a live TUI dashboard and an interactive database explorer — all in a single, zero-dependency binary.
+**ctsnare** is a compiled Go CLI tool that monitors Certificate Transparency logs in real-time, scores newly issued domains against configurable keyword profiles, stores hits in an embedded SQLite database, and provides both a live TUI dashboard and an interactive database explorer — all in a single, zero-dependency binary.
 
-The tool fills a gap in the current landscape: existing CT tools are either domain-lookup utilities (give it a domain, get its certs) or raw bulk downloaders. None of them do real-time keyword hunting with scoring heuristics and queryable structured storage. cert-hunter is for fraud analysts, threat intel teams, bug bounty hunters, and anyone who needs an early warning system for suspicious domains going live.
+The tool fills a gap in the current landscape: existing CT tools are either domain-lookup utilities (give it a domain, get its certs) or raw bulk downloaders. None of them do real-time keyword hunting with scoring heuristics and queryable structured storage. ctsnare is for fraud analysts, threat intel teams, bug bounty hunters, and anyone who needs an early warning system for suspicious domains going live.
 
 ---
 
@@ -36,11 +36,11 @@ This project started as a Python proof-of-concept built during live recon on a s
 
 ### Single Binary, Subcommand Structure
 
-- `cert-hunter watch` — Live monitoring mode (TUI dashboard)
-- `cert-hunter watch --headless` — No TUI, poll and store silently (for servers, cron, background runs)
-- `cert-hunter query` — Search and filter stored hits from SQLite
-- `cert-hunter db` — Database management (clear, stats, export)
-- `cert-hunter profiles` — List and inspect keyword profiles
+- `ctsnare watch` — Live monitoring mode (TUI dashboard)
+- `ctsnare watch --headless` — No TUI, poll and store silently (for servers, cron, background runs)
+- `ctsnare query` — Search and filter stored hits from SQLite
+- `ctsnare db` — Database management (clear, stats, export)
+- `ctsnare profiles` — List and inspect keyword profiles
 
 ### Decoupled Polling and Display
 
@@ -175,33 +175,33 @@ The primary interface. Built with bubbletea + lipgloss (Charm ecosystem). Two vi
 
 For non-interactive use, scripting, and piping into other tools.
 
-- `cert-hunter query --keyword casino` — All hits containing "casino"
-- `cert-hunter query --score-min 5` — Only MED and HIGH severity
-- `cert-hunter query --since 24h` — Last 24 hours
-- `cert-hunter query --tld .xyz` — Filter by TLD
-- `cert-hunter query --session midnight-run` — Filter by session tag
-- `cert-hunter query --severity HIGH` — Only high-confidence hits
-- `cert-hunter query --format json` — JSON output for piping
-- `cert-hunter query --format csv` — CSV export
-- `cert-hunter query --format table` — Pretty-printed table (default)
+- `ctsnare query --keyword casino` — All hits containing "casino"
+- `ctsnare query --score-min 5` — Only MED and HIGH severity
+- `ctsnare query --since 24h` — Last 24 hours
+- `ctsnare query --tld .xyz` — Filter by TLD
+- `ctsnare query --session midnight-run` — Filter by session tag
+- `ctsnare query --severity HIGH` — Only high-confidence hits
+- `ctsnare query --format json` — JSON output for piping
+- `ctsnare query --format csv` — CSV export
+- `ctsnare query --format table` — Pretty-printed table (default)
 
-Flags are composable: `cert-hunter query --keyword casino --score-min 4 --since 12h --format json`
+Flags are composable: `ctsnare query --keyword casino --score-min 4 --since 12h --format json`
 
 ### 7. Database Management
 
-- `cert-hunter db stats` — Total hits, breakdown by severity, top keywords, date range
-- `cert-hunter db clear` — Nuke everything (with --confirm flag)
-- `cert-hunter db clear --session midnight-run` — Clear only a specific session
-- `cert-hunter db export --format jsonl` — Full database export
-- `cert-hunter db path` — Print the database file path
+- `ctsnare db stats` — Total hits, breakdown by severity, top keywords, date range
+- `ctsnare db clear` — Nuke everything (with --confirm flag)
+- `ctsnare db clear --session midnight-run` — Clear only a specific session
+- `ctsnare db export --format jsonl` — Full database export
+- `ctsnare db path` — Print the database file path
 
 ### 8. Sessions
 
 Sessions are optional tags applied to a monitoring run. They allow grouping and isolating results without destroying data.
 
-- `cert-hunter watch --session midnight-run` — Tag all hits from this run
-- `cert-hunter query --session midnight-run` — Query only that session
-- `cert-hunter db clear --session midnight-run` — Clear only that session
+- `ctsnare watch --session midnight-run` — Tag all hits from this run
+- `ctsnare query --session midnight-run` — Query only that session
+- `ctsnare db clear --session midnight-run` — Clear only that session
 - No session flag = default session (all hits land in the same bucket)
 
 This eliminates the need to clear the database just to get a fresh view. Run a session, analyze it, start a new one.
@@ -212,7 +212,7 @@ This eliminates the need to clear the database just to get a fresh view. Run a s
 
 ### Config File (Optional)
 
-TOML file at `~/.config/cert-hunter/config.toml` or specified via `--config` flag. Everything has sensible defaults — the tool works with zero configuration.
+TOML file at `~/.config/ctsnare/config.toml` or specified via `--config` flag. Everything has sensible defaults — the tool works with zero configuration.
 
 **Configurable values:**
 
@@ -231,10 +231,10 @@ Every config file value can be overridden by a CLI flag. CLI flags always win.
 
 ## Distribution
 
-- `go install github.com/user/cert-hunter@latest` — Primary install method
+- `go install github.com/user/ctsnare@latest` — Primary install method
 - Pre-built binaries for Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64) via GitHub Releases
 - Single binary, no runtime dependencies, no setup steps
-- Database file auto-created on first run at `~/.local/share/cert-hunter/cert-hunter.db` (XDG-compliant, overridable)
+- Database file auto-created on first run at `~/.local/share/ctsnare/ctsnare.db` (XDG-compliant, overridable)
 
 ---
 

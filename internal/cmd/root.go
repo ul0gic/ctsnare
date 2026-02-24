@@ -11,9 +11,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "cert-hunter",
+	Use:   "ctsnare",
 	Short: "Monitor Certificate Transparency logs for suspicious domains",
-	Long: `cert-hunter is a real-time Certificate Transparency (CT) log monitor
+	Long: `ctsnare is a real-time Certificate Transparency (CT) log monitor
 that scores newly issued TLS certificates against keyword profiles to
 detect phishing, typosquatting, and brand impersonation.
 

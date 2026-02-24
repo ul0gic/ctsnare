@@ -1,4 +1,4 @@
-module github.com/ul0gic/cert-hunter
+module github.com/ul0gic/ctsnare
 
 go 1.26.0
 

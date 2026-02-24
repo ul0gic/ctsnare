@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/ul0gic/cert-hunter/internal/cmd"
+	"github.com/ul0gic/ctsnare/internal/cmd"
 )
 
 func main() {
