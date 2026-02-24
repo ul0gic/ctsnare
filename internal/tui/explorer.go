@@ -121,6 +121,17 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		m.loading = true
 		return m, m.loadHitsCmd()
 
+	case BookmarkToggleMsg:
+		// Update the local hit's bookmark state and refresh the row.
+		for i := range m.hits {
+			if m.hits[i].Domain == msg.Domain {
+				m.hits[i].Bookmarked = msg.Bookmarked
+				break
+			}
+		}
+		m.table.SetRows(m.hitsToRows())
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle confirmation overlay first.
 		if m.confirmAction != "" {
@@ -194,6 +205,13 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 
 		case msg.String() == "C": // clear all
 			m.confirmAction = "clear-all"
+			return m, nil
+
+		case msg.String() == "b": // bookmark toggle
+			row := m.table.Cursor()
+			if row >= 0 && row < len(m.hits) {
+				return m, m.bookmarkToggleCmd(row)
+			}
 			return m, nil
 		}
 
@@ -297,6 +315,9 @@ func (m ExplorerModel) renderFilterBar() string {
 	if m.filter.Session != "" {
 		parts = append(parts, fmt.Sprintf("session:%s", m.filter.Session))
 	}
+	if m.filter.Bookmarked {
+		parts = append(parts, "bookmarked:yes")
+	}
 
 	sortLabel := fmt.Sprintf("sort:%s %s", explorerColumns[m.sortCol], m.sortDir)
 	hitCount := fmt.Sprintf("%d hits", len(m.hits))
@@ -348,8 +369,16 @@ func (m ExplorerModel) hitsToRows() []table.Row {
 			kw = kw[:20] + "..."
 		}
 		dom := hit.Domain
-		if len(dom) > 38 {
-			dom = dom[:35] + "..."
+		if len(dom) > 34 {
+			dom = dom[:31] + "..."
+		}
+		// Bookmark star prefix.
+		if hit.Bookmarked {
+			dom = StyleBookmarked.Render("*") + " " + dom
+		}
+		// Live domain indicator.
+		if hit.IsLive {
+			dom = StyleLiveDomain.Render(dom) + " " + StyleLiveDomain.Render("[L]")
 		}
 		issuer := hit.IssuerCN
 		if len(issuer) > 18 {
@@ -425,6 +454,22 @@ func (m ExplorerModel) deleteBatchCmd() tea.Cmd {
 			return nil
 		}
 		return DeleteHitsMsg{Domains: domains}
+	}
+}
+
+func (m ExplorerModel) bookmarkToggleCmd(rowIdx int) tea.Cmd {
+	if m.store == nil || rowIdx >= len(m.hits) {
+		return nil
+	}
+	hit := m.hits[rowIdx]
+	newState := !hit.Bookmarked
+	store := m.store
+	domainName := hit.Domain
+	return func() tea.Msg {
+		if err := store.SetBookmark(context.Background(), domainName, newState); err != nil {
+			return nil
+		}
+		return BookmarkToggleMsg{Domain: domainName, Bookmarked: newState}
 	}
 }
 

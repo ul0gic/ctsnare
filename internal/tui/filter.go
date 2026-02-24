@@ -16,11 +16,13 @@ const (
 	filterFieldSeverity
 	filterFieldTimeRange
 	filterFieldSession
+	filterFieldBookmarked
 	filterFieldCount
 )
 
 var severityOptions = []string{"", "HIGH", "MED", "LOW"}
 var timeRangeOptions = []string{"", "1h", "6h", "12h", "24h", "7d"}
+var bookmarkedOptions = []string{"", "yes", "no"}
 
 // FilterAppliedMsg is sent when the user applies filter settings.
 type FilterAppliedMsg struct {
@@ -32,12 +34,13 @@ type FilterCancelledMsg struct{}
 
 // FilterModel provides an input overlay for building query filters.
 type FilterModel struct {
-	inputs       []textinput.Model
-	activeField  int
-	severityIdx  int
-	timeRangeIdx int
-	width        int
-	height       int
+	inputs        []textinput.Model
+	activeField   int
+	severityIdx   int
+	timeRangeIdx  int
+	bookmarkedIdx int
+	width         int
+	height        int
 }
 
 // NewFilterModel creates a new filter input overlay.
@@ -73,6 +76,12 @@ func NewFilterModel() FilterModel {
 	session.Prompt = "Session:    "
 	session.CharLimit = 64
 	inputs[filterFieldSession] = session
+
+	bookmarked := textinput.New()
+	bookmarked.Placeholder = "all"
+	bookmarked.Prompt = "Bookmarked: "
+	bookmarked.CharLimit = 3
+	inputs[filterFieldBookmarked] = bookmarked
 
 	inputs[filterFieldKeyword].Focus()
 
@@ -121,6 +130,7 @@ func (m FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
 			}
 			m.severityIdx = 0
 			m.timeRangeIdx = 0
+			m.bookmarkedIdx = 0
 			return m, nil
 		}
 
@@ -146,6 +156,19 @@ func (m FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
 			if msg.String() == "right" || msg.String() == "l" {
 				m.timeRangeIdx = (m.timeRangeIdx + 1) % len(timeRangeOptions)
 				m.inputs[filterFieldTimeRange].SetValue(timeRangeOptions[m.timeRangeIdx])
+				return m, nil
+			}
+		}
+
+		if m.activeField == filterFieldBookmarked {
+			if msg.String() == "left" || msg.String() == "h" {
+				m.bookmarkedIdx = (m.bookmarkedIdx - 1 + len(bookmarkedOptions)) % len(bookmarkedOptions)
+				m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
+				return m, nil
+			}
+			if msg.String() == "right" || msg.String() == "l" {
+				m.bookmarkedIdx = (m.bookmarkedIdx + 1) % len(bookmarkedOptions)
+				m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
 				return m, nil
 			}
 		}
@@ -200,6 +223,10 @@ func (m FilterModel) buildFilter() domain.QueryFilter {
 
 	if v := m.inputs[filterFieldTimeRange].Value(); v != "" {
 		f.Since = parseTimeRange(v)
+	}
+
+	if m.inputs[filterFieldBookmarked].Value() == "yes" {
+		f.Bookmarked = true
 	}
 
 	return f

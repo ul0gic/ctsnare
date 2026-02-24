@@ -141,6 +141,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.explorer, cmd = m.explorer.Update(msg)
 		return m, cmd
 
+	case BookmarkToggleMsg:
+		var cmd tea.Cmd
+		m.explorer, cmd = m.explorer.Update(msg)
+		return m, cmd
+
 	case ShowDetailMsg:
 		d := NewDetailModel(msg.Hit)
 		d.width = m.width
