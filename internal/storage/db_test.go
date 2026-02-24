@@ -1093,3 +1093,181 @@ func TestExportCSV_ZeroEnrichmentFields(t *testing.T) {
 	assert.Empty(t, row[colIdx["live_checked_at"]], "zero-value live_checked_at should be empty")
 	assert.Equal(t, "false", row[colIdx["bookmarked"]], "zero-value bookmarked should be 'false'")
 }
+
+// --- Phase 7.4 edge case tests ---
+
+func TestSetBookmark_Toggle_SetUnsetSet(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("toggle-bookmark.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	// Set bookmark.
+	require.NoError(t, db.SetBookmark(ctx, "toggle-bookmark.com", true))
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.True(t, hits[0].Bookmarked, "should be bookmarked after first set")
+
+	// Unset bookmark.
+	require.NoError(t, db.SetBookmark(ctx, "toggle-bookmark.com", false))
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.False(t, hits[0].Bookmarked, "should not be bookmarked after unset")
+
+	// Set bookmark again.
+	require.NoError(t, db.SetBookmark(ctx, "toggle-bookmark.com", true))
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.True(t, hits[0].Bookmarked, "should be bookmarked after re-set")
+}
+
+func TestDeleteHits_EmptyList_NoOp(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("survivor.com", 4, domain.SeverityMed)))
+
+	// Delete with nil slice -- should be a no-op.
+	err := db.DeleteHits(ctx, nil)
+	require.NoError(t, err, "DeleteHits with nil should not error")
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 1, "no hits should be deleted with nil input")
+}
+
+func TestDeleteHits_NonexistentDomains_NoError(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("existing.com", 4, domain.SeverityMed)))
+
+	// Attempt to delete domains that don't exist.
+	err := db.DeleteHits(ctx, []string{"ghost1.com", "ghost2.com", "ghost3.com"})
+	require.NoError(t, err, "deleting nonexistent domains should not error")
+
+	// Existing hit should be untouched.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 1)
+	assert.Equal(t, "existing.com", hits[0].Domain)
+}
+
+func TestUpdateEnrichment_NonexistentDomain_NoError(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// UpdateEnrichment for a domain that doesn't exist should not error --
+	// the UPDATE simply matches zero rows.
+	err := db.UpdateEnrichment(ctx, "nonexistent.com", true, []string{"1.2.3.4"}, "cloudflare", 200)
+	require.NoError(t, err, "UpdateEnrichment for nonexistent domain should not error")
+
+	// Verify nothing was inserted.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, hits, "no hit should be created by UpdateEnrichment")
+}
+
+func TestQueryHits_BookmarkedAndLiveOnly_Combined(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert 4 hits with different combinations.
+	h1 := testHit("bookmarked-live.com", 6, domain.SeverityHigh)
+	h2 := testHit("bookmarked-dead.com", 4, domain.SeverityMed)
+	h3 := testHit("unbookmarked-live.com", 5, domain.SeverityMed)
+	h4 := testHit("unbookmarked-dead.com", 3, domain.SeverityLow)
+
+	require.NoError(t, db.InsertHit(ctx, h1))
+	require.NoError(t, db.InsertHit(ctx, h2))
+	require.NoError(t, db.InsertHit(ctx, h3))
+	require.NoError(t, db.InsertHit(ctx, h4))
+
+	// Mark live domains.
+	require.NoError(t, db.UpdateEnrichment(ctx, "bookmarked-live.com", true, []string{"1.2.3.4"}, "cloudflare", 200))
+	require.NoError(t, db.UpdateEnrichment(ctx, "unbookmarked-live.com", true, []string{"5.6.7.8"}, "aws", 301))
+
+	// Set bookmarks.
+	require.NoError(t, db.SetBookmark(ctx, "bookmarked-live.com", true))
+	require.NoError(t, db.SetBookmark(ctx, "bookmarked-dead.com", true))
+
+	// Query with both Bookmarked AND LiveOnly -- should return only bookmarked-live.com.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true, LiveOnly: true})
+	require.NoError(t, err)
+	require.Len(t, hits, 1, "should return only hits that are both bookmarked and live")
+	assert.Equal(t, "bookmarked-live.com", hits[0].Domain)
+
+	// Just bookmarked -- should return 2.
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true})
+	require.NoError(t, err)
+	assert.Len(t, hits, 2, "should return both bookmarked hits")
+
+	// Just live -- should return 2.
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{LiveOnly: true})
+	require.NoError(t, err)
+	assert.Len(t, hits, 2, "should return both live hits")
+}
+
+func TestQueryHits_SortByIsLive(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("dead.com", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("live.com", 6, domain.SeverityHigh)))
+	require.NoError(t, db.UpdateEnrichment(ctx, "live.com", true, []string{"1.2.3.4"}, "cloudflare", 200))
+
+	// Sort by is_live ascending -- dead (0) first, live (1) second.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{SortBy: "is_live", SortDir: "ASC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 2)
+	assert.Equal(t, "dead.com", hits[0].Domain, "dead domain should come first in ASC sort")
+	assert.Equal(t, "live.com", hits[1].Domain, "live domain should come second in ASC sort")
+
+	// Sort by is_live descending -- live (1) first, dead (0) second.
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{SortBy: "is_live", SortDir: "DESC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 2)
+	assert.Equal(t, "live.com", hits[0].Domain, "live domain should come first in DESC sort")
+	assert.Equal(t, "dead.com", hits[1].Domain, "dead domain should come second in DESC sort")
+}
+
+func TestQueryHits_SortByBookmarked(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("unmarked.com", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("marked.com", 6, domain.SeverityHigh)))
+	require.NoError(t, db.SetBookmark(ctx, "marked.com", true))
+
+	// Sort by bookmarked descending -- bookmarked (1) first.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{SortBy: "bookmarked", SortDir: "DESC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 2)
+	assert.Equal(t, "marked.com", hits[0].Domain, "bookmarked domain should come first in DESC sort")
+	assert.Equal(t, "unmarked.com", hits[1].Domain)
+}
+
+func TestQueryHits_SortByHTTPStatus(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("status200.com", 6, domain.SeverityHigh)))
+	require.NoError(t, db.InsertHit(ctx, testHit("status404.com", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("status0.com", 2, domain.SeverityLow)))
+
+	require.NoError(t, db.UpdateEnrichment(ctx, "status200.com", true, []string{"1.1.1.1"}, "cloudflare", 200))
+	require.NoError(t, db.UpdateEnrichment(ctx, "status404.com", true, []string{"2.2.2.2"}, "unknown", 404))
+	// status0.com has default http_status=0.
+
+	// Sort by http_status ascending.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{SortBy: "http_status", SortDir: "ASC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 3)
+	assert.Equal(t, 0, hits[0].HTTPStatus, "http_status=0 should come first in ASC sort")
+	assert.Equal(t, 200, hits[1].HTTPStatus)
+	assert.Equal(t, 404, hits[2].HTTPStatus, "http_status=404 should come last in ASC sort")
+}
