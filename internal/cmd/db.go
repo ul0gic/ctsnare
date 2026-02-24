@@ -103,7 +103,7 @@ func openDB() (*storage.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, 0, 0)
+	config.MergeFlags(cfg, dbPath, 0, 0, 0)
 
 	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
 		return nil, fmt.Errorf("database not found at %s — run 'ctsnare watch' first to start collecting hits", cfg.DBPath)
@@ -207,7 +207,7 @@ func runDBPath(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, 0, 0)
+	config.MergeFlags(cfg, dbPath, 0, 0, 0)
 
 	fmt.Println(cfg.DBPath)
 	return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/ul0gic/ctsnare/internal/config"
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/enrichment"
 	"github.com/ul0gic/ctsnare/internal/poller"
 	"github.com/ul0gic/ctsnare/internal/profile"
 	"github.com/ul0gic/ctsnare/internal/scoring"
@@ -25,6 +26,7 @@ var (
 	watchHeadless     bool
 	watchBatchSize    int
 	watchPollInterval time.Duration
+	watchBacktrack    int64
 )
 
 var watchCmd = &cobra.Command{
@@ -42,7 +44,8 @@ servers and background processes).
 Examples:
   ctsnare watch
   ctsnare watch --profile crypto --session morning-run
-  ctsnare watch --headless --poll-interval 10s`,
+  ctsnare watch --headless --poll-interval 10s
+  ctsnare watch --backtrack 1000`,
 	RunE: runWatch,
 }
 
@@ -52,6 +55,7 @@ func init() {
 	watchCmd.Flags().BoolVar(&watchHeadless, "headless", false, "run without TUI — poll and store only (for servers and background use)")
 	watchCmd.Flags().IntVar(&watchBatchSize, "batch-size", 0, "number of CT log entries to fetch per poll (default: 256 from config)")
 	watchCmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0, "wait time between polls per log (default: 5s from config)")
+	watchCmd.Flags().Int64Var(&watchBacktrack, "backtrack", 0, "start N entries behind the current log tip for immediate results (default: 0, start at tip)")
 
 	rootCmd.AddCommand(watchCmd)
 }
@@ -64,7 +68,7 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, watchBatchSize, watchPollInterval)
+	config.MergeFlags(cfg, dbPath, watchBatchSize, watchPollInterval, watchBacktrack)
 
 	slog.Info("config loaded",
 		"db_path", cfg.DBPath,
@@ -96,7 +100,7 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	pollerStatsChan := make(chan poller.PollStats, 64)
 
 	// Create poller manager.
-	pollerMgr := poller.NewManager(cfg, scorer, store, prof)
+	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack)
 
 	if watchHeadless {
 		return runHeadless(pollerMgr, hitChan, pollerStatsChan)
@@ -141,7 +145,7 @@ func runHeadless(
 	return nil
 }
 
-// runTUI starts pollers and the Bubble Tea TUI dashboard.
+// runTUI starts pollers, the enrichment pipeline, and the Bubble Tea TUI dashboard.
 func runTUI(
 	store *storage.DB,
 	pollerMgr *poller.Manager,
@@ -161,8 +165,39 @@ func runTUI(
 		return fmt.Errorf("starting pollers: %w", err)
 	}
 
-	// Create TUI app with real store and channels.
-	app := tui.NewApp(store, hitChan, tuiStatsChan, profileName)
+	// Start enrichment pipeline. The enricher probes domains for DNS and
+	// HTTP liveness in the background, storing results and publishing them
+	// for TUI consumption via enrichResultChan.
+	enrichResultChan := make(chan enrichment.EnrichResult, 256)
+	enricher := enrichment.NewEnricher(store, enrichResultChan)
+	go func() {
+		_ = enricher.Run(ctx)
+	}()
+
+	// Tap the hit channel: read each hit, forward it to the TUI channel,
+	// and enqueue the domain for enrichment.
+	tuiHitChan := make(chan domain.Hit, 256)
+	go func() {
+		defer close(tuiHitChan)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case hit, ok := <-hitChan:
+				if !ok {
+					return
+				}
+				enricher.Enqueue(hit.Domain)
+				select {
+				case tuiHitChan <- hit:
+				default:
+				}
+			}
+		}
+	}()
+
+	// Create TUI app with tapped hit channel.
+	app := tui.NewApp(store, tuiHitChan, tuiStatsChan, profileName)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
 	// Run TUI -- blocks until user quits.

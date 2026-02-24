@@ -13,14 +13,16 @@ import (
 )
 
 var (
-	queryKeyword  string
-	queryScoreMin int
-	querySince    time.Duration
-	queryTLD      string
-	querySession  string
-	querySeverity string
-	queryFormat   string
-	queryLimit    int
+	queryKeyword    string
+	queryScoreMin   int
+	querySince      time.Duration
+	queryTLD        string
+	querySession    string
+	querySeverity   string
+	queryFormat     string
+	queryLimit      int
+	queryBookmarked bool
+	queryLiveOnly   bool
 )
 
 var queryCmd = &cobra.Command{
@@ -48,6 +50,8 @@ func init() {
 	queryCmd.Flags().StringVar(&querySeverity, "severity", "", "filter by severity: HIGH, MED, or LOW")
 	queryCmd.Flags().StringVar(&queryFormat, "format", "table", "output format: table (default), json (JSONL), or csv")
 	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results to return (default: 50)")
+	queryCmd.Flags().BoolVar(&queryBookmarked, "bookmarked", false, "show only bookmarked hits")
+	queryCmd.Flags().BoolVar(&queryLiveOnly, "live-only", false, "show only domains that responded to HTTP liveness probe")
 
 	rootCmd.AddCommand(queryCmd)
 }
@@ -58,7 +62,7 @@ func runQuery(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, 0, 0)
+	config.MergeFlags(cfg, dbPath, 0, 0, 0)
 
 	// Check if the database file exists before attempting to open it.
 	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
@@ -73,15 +77,17 @@ func runQuery(_ *cobra.Command, _ []string) error {
 	defer store.Close()
 
 	filter := domain.QueryFilter{
-		Keyword:  queryKeyword,
-		ScoreMin: queryScoreMin,
-		Since:    querySince,
-		TLD:      queryTLD,
-		Session:  querySession,
-		Severity: querySeverity,
-		Limit:    queryLimit,
-		SortBy:   "score",
-		SortDir:  "DESC",
+		Keyword:    queryKeyword,
+		ScoreMin:   queryScoreMin,
+		Since:      querySince,
+		TLD:        queryTLD,
+		Session:    querySession,
+		Severity:   querySeverity,
+		Limit:      queryLimit,
+		SortBy:     "score",
+		SortDir:    "DESC",
+		Bookmarked: queryBookmarked,
+		LiveOnly:   queryLiveOnly,
 	}
 
 	hits, err := store.QueryHits(context.Background(), filter)

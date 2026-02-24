@@ -29,8 +29,18 @@ func FormatTable(hits []domain.Hit, w io.Writer) error {
 			issuer = issuer[:22] + "..."
 		}
 		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
+
+		// Bookmark and live indicators.
+		domainStr := hit.Domain
+		if hit.Bookmarked {
+			domainStr = "* " + domainStr
+		}
+		if hit.IsLive {
+			domainStr = domainStr + " [L]"
+		}
+
 		_, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
-			hit.Severity, hit.Score, hit.Domain, kw, issuer, ts)
+			hit.Severity, hit.Score, domainStr, kw, issuer, ts)
 		if err != nil {
 			return fmt.Errorf("writing table row: %w", err)
 		}
@@ -52,7 +62,11 @@ func FormatJSON(hits []domain.Hit, w io.Writer) error {
 // FormatCSV writes hits as CSV with a header row.
 func FormatCSV(hits []domain.Hit, w io.Writer) error {
 	cw := csv.NewWriter(w)
-	header := []string{"severity", "score", "domain", "keywords", "issuer", "issuer_cn", "ct_log", "profile", "session", "timestamp"}
+	header := []string{
+		"severity", "score", "domain", "keywords", "issuer", "issuer_cn",
+		"ct_log", "profile", "session", "timestamp",
+		"is_live", "resolved_ips", "hosting_provider", "http_status", "bookmarked",
+	}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("writing CSV header: %w", err)
 	}
@@ -69,6 +83,11 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 			hit.Profile,
 			hit.Session,
 			hit.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			fmt.Sprintf("%t", hit.IsLive),
+			strings.Join(hit.ResolvedIPs, ";"),
+			hit.HostingProvider,
+			fmt.Sprintf("%d", hit.HTTPStatus),
+			fmt.Sprintf("%t", hit.Bookmarked),
 		}
 		if err := cw.Write(row); err != nil {
 			return fmt.Errorf("writing CSV row: %w", err)
