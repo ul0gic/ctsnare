@@ -38,10 +38,10 @@ func TestNewFeedModel_InitialState(t *testing.T) {
 	assert.False(t, m.ready, "should not be ready before window size")
 }
 
-func TestFeedModel_Init_ReturnsNil(t *testing.T) {
+func TestFeedModel_Init_ReturnsTickCmd(t *testing.T) {
 	m := NewFeedModel("all")
 	cmd := m.Init()
-	assert.Nil(t, cmd)
+	assert.NotNil(t, cmd, "Init should return a discard tick command")
 }
 
 func TestFeedModel_WindowSizeMsg_SetsReady(t *testing.T) {
