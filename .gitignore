@@ -1,0 +1,7 @@
+/cert-hunter
+*.db
+*.sqlite
+.env
+dist/
+coverage.out
+*.prof
