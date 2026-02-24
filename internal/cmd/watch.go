@@ -36,16 +36,22 @@ Polls public CT logs, scores new certificates against the selected
 keyword profile, and stores hits in the local database.
 
 By default, starts the interactive TUI dashboard. Use --headless
-for non-interactive mode (polling and storage only).`,
+for non-interactive mode (polling and storage only, suitable for
+servers and background processes).
+
+Examples:
+  ctsnare watch
+  ctsnare watch --profile crypto --session morning-run
+  ctsnare watch --headless --poll-interval 10s`,
 	RunE: runWatch,
 }
 
 func init() {
-	watchCmd.Flags().StringVar(&watchProfile, "profile", "all", "keyword profile to use for scoring")
-	watchCmd.Flags().StringVar(&watchSession, "session", "", "session tag for grouping hits")
-	watchCmd.Flags().BoolVar(&watchHeadless, "headless", false, "run without TUI (poll and store only)")
-	watchCmd.Flags().IntVar(&watchBatchSize, "batch-size", 0, "override batch size from config")
-	watchCmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0, "override poll interval from config")
+	watchCmd.Flags().StringVar(&watchProfile, "profile", "all", `keyword profile to use for scoring (built-ins: "crypto", "phishing", "all")`)
+	watchCmd.Flags().StringVar(&watchSession, "session", "", "optional tag to group hits from this run (queryable later with --session)")
+	watchCmd.Flags().BoolVar(&watchHeadless, "headless", false, "run without TUI — poll and store only (for servers and background use)")
+	watchCmd.Flags().IntVar(&watchBatchSize, "batch-size", 0, "number of CT log entries to fetch per poll (default: 256 from config)")
+	watchCmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0, "wait time between polls per log (default: 5s from config)")
 
 	rootCmd.AddCommand(watchCmd)
 }

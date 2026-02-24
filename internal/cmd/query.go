@@ -28,19 +28,26 @@ var queryCmd = &cobra.Command{
 	Short: "Search and filter stored hits",
 	Long: `Search the local database for stored hits matching the given filters.
 
-Filters can be combined. Results are output in table, JSON, or CSV format.`,
+All flags are optional and composable — unset flags match everything.
+Results are sorted by score descending by default.
+
+Examples:
+  ctsnare query
+  ctsnare query --severity HIGH --format json
+  ctsnare query --keyword casino --since 12h
+  ctsnare query --keyword wallet --severity HIGH --since 24h --format json | jq '.domain'`,
 	RunE: runQuery,
 }
 
 func init() {
-	queryCmd.Flags().StringVar(&queryKeyword, "keyword", "", "filter by keyword substring")
-	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score threshold")
-	queryCmd.Flags().DurationVar(&querySince, "since", 0, "only hits from this duration ago (e.g., 24h, 7d)")
-	queryCmd.Flags().StringVar(&queryTLD, "tld", "", "filter by top-level domain suffix")
-	queryCmd.Flags().StringVar(&querySession, "session", "", "filter by session tag")
-	queryCmd.Flags().StringVar(&querySeverity, "severity", "", "filter by severity (HIGH, MED, LOW)")
-	queryCmd.Flags().StringVar(&queryFormat, "format", "table", "output format: table, json, csv")
-	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results")
+	queryCmd.Flags().StringVar(&queryKeyword, "keyword", "", "filter by keyword substring match against matched keywords")
+	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score (HIGH=6+, MED=4-5, LOW=1-3)")
+	queryCmd.Flags().DurationVar(&querySince, "since", 0, `only show hits from within this duration (e.g., "1h", "24h", "7d")`)
+	queryCmd.Flags().StringVar(&queryTLD, "tld", "", `filter by TLD suffix (e.g., ".xyz" or "xyz")`)
+	queryCmd.Flags().StringVar(&querySession, "session", "", "filter by session tag set with 'ctsnare watch --session'")
+	queryCmd.Flags().StringVar(&querySeverity, "severity", "", "filter by severity: HIGH, MED, or LOW")
+	queryCmd.Flags().StringVar(&queryFormat, "format", "table", "output format: table (default), json (JSONL), or csv")
+	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results to return (default: 50)")
 
 	rootCmd.AddCommand(queryCmd)
 }

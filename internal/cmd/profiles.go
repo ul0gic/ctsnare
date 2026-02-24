@@ -14,16 +14,29 @@ var profilesCmd = &cobra.Command{
 	Use:   "profiles",
 	Short: "List and inspect keyword profiles",
 	Long: `List all available keyword profiles or inspect a specific profile's
-keywords, suspicious TLDs, and skip suffixes.`,
+keywords, suspicious TLDs, and skip suffixes.
+
+Built-in profiles: crypto, phishing, all.
+Custom profiles are loaded from the config file (--config).
+
+Examples:
+  ctsnare profiles
+  ctsnare profiles show crypto
+  ctsnare profiles show all`,
 	RunE: runProfilesList,
 }
 
 var profilesShowCmd = &cobra.Command{
 	Use:   "show [name]",
-	Short: "Show details of a specific profile",
-	Long:  `Display the full details of a keyword profile including keywords, suspicious TLDs, and skip suffixes.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runProfilesShow,
+	Short: "Show full details of a keyword profile",
+	Long: `Display the full details of a keyword profile: keywords, suspicious TLDs, and skip suffixes.
+
+Examples:
+  ctsnare profiles show crypto
+  ctsnare profiles show phishing
+  ctsnare profiles show all`,
+	Args: cobra.ExactArgs(1),
+	RunE: runProfilesShow,
 }
 
 func init() {

@@ -14,7 +14,13 @@ import (
 var dbCmd = &cobra.Command{
 	Use:   "db",
 	Short: "Database management commands",
-	Long:  `Manage the local SQLite database: view stats, clear data, export, or show the database path.`,
+	Long: `Manage the local SQLite database: view stats, clear data, export, or show the database path.
+
+Examples:
+  ctsnare db stats
+  ctsnare db clear --confirm
+  ctsnare db export --format csv --output hits.csv
+  ctsnare db path`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		return cmd.Help()
 	},
@@ -37,8 +43,14 @@ var (
 var dbClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear stored hits from the database",
-	Long: `Delete hits from the database. Requires --confirm flag to prevent accidental deletion.
-Use --session to clear only hits from a specific session.`,
+	Long: `Delete hits from the database.
+
+Requires --confirm to prevent accidental deletion. Without --session,
+all hits are removed. With --session, only hits from that session are removed.
+
+Examples:
+  ctsnare db clear --confirm
+  ctsnare db clear --session morning-run --confirm`,
 	RunE: runDBClear,
 }
 
@@ -51,8 +63,16 @@ var (
 var dbExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export hits to JSONL or CSV",
-	Long:  `Export all stored hits to a file or stdout in JSONL or CSV format.`,
-	RunE:  runDBExport,
+	Long: `Export all stored hits to a file or stdout in JSONL or CSV format.
+
+JSONL (default) outputs one JSON object per line. CSV includes a header row.
+If --output is not specified, output is written to stdout.
+
+Examples:
+  ctsnare db export
+  ctsnare db export --format csv --output hits.csv
+  ctsnare db export --format jsonl | jq '.domain'`,
+	RunE: runDBExport,
 }
 
 // db path subcommand
@@ -64,11 +84,11 @@ var dbPathCmd = &cobra.Command{
 }
 
 func init() {
-	dbClearCmd.Flags().BoolVar(&dbClearConfirm, "confirm", false, "confirm deletion (required)")
-	dbClearCmd.Flags().StringVar(&dbClearSession, "session", "", "only clear hits from this session")
+	dbClearCmd.Flags().BoolVar(&dbClearConfirm, "confirm", false, "required: confirm deletion to prevent accidents")
+	dbClearCmd.Flags().StringVar(&dbClearSession, "session", "", "only clear hits tagged with this session name")
 
-	dbExportCmd.Flags().StringVar(&dbExportFormat, "format", "jsonl", "export format: jsonl or csv")
-	dbExportCmd.Flags().StringVar(&dbExportOutput, "output", "", "output file path (stdout if empty)")
+	dbExportCmd.Flags().StringVar(&dbExportFormat, "format", "jsonl", "export format: jsonl (default) or csv")
+	dbExportCmd.Flags().StringVar(&dbExportOutput, "output", "", "write to this file path instead of stdout")
 
 	dbCmd.AddCommand(dbStatsCmd)
 	dbCmd.AddCommand(dbClearCmd)

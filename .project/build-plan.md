@@ -560,7 +560,7 @@ Overall Progress             [████████████████�
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 6.3.1 | Review and improve all Cobra command help text. For each command (`root`, `watch`, `query`, `db`, `db stats`, `db clear`, `db export`, `db path`, `profiles`, `profiles list`, `profiles show`): verify `Short` is under 50 characters, verify `Long` includes a usage example, verify flag descriptions are clear and include default values where applicable. Run `./ctsnare --help`, `./ctsnare watch --help`, `./ctsnare query --help`, `./ctsnare db --help`, `./ctsnare profiles --help` and verify output is consistent and helpful. Fix any unclear or missing descriptions. | DOC |
+| ✅ | 6.3.1 | Review and improve all Cobra command help text. For each command (`root`, `watch`, `query`, `db`, `db stats`, `db clear`, `db export`, `db path`, `profiles`, `profiles list`, `profiles show`): verify `Short` is under 50 characters, verify `Long` includes a usage example, verify flag descriptions are clear and include default values where applicable. Run `./ctsnare --help`, `./ctsnare watch --help`, `./ctsnare query --help`, `./ctsnare db --help`, `./ctsnare profiles --help` and verify output is consistent and helpful. Fix any unclear or missing descriptions. | DOC |
 
 ### 6.4 Changelog & Release Milestone
 
