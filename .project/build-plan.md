@@ -173,8 +173,8 @@ Overall Progress             [███████████         ]  55%
 | Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
 | Phase 5: Polish & Release | 3 | 3 | 0 | 0 | 100% | BE, DOC |
 | Phase 6: Documentation | 13 | 13 | 0 | 0 | 100% | DOC |
-| Phase 7.1: Enhancement Foundation | 17 | 0 | 0 | 0 | 0% | BE |
-| Phase 7.2: Enhancement Build | 32 | 0 | 0 | 0 | 0% | BE, CLI |
+| Phase 7.1: Enhancement Foundation | 17 | 17 | 0 | 0 | 100% | BE |
+| Phase 7.2: Enhancement Build | 32 | 32 | 0 | 0 | 100% | BE, CLI |
 | Merge Gate 3 | 1 | 0 | 0 | 0 | 0% | Lead |
 | Phase 7.3: Enhancement Integration | 8 | 0 | 0 | 0 | 0% | CLI |
 | Phase 7.4: Enhancement Polish | 10 | 0 | 0 | 0 | 0% | QA, CLI |
@@ -760,10 +760,10 @@ Overall Progress             [███████████         ]  55%
 > All parallel work from Phase 7.2 STOPS here. No agent continues until merge is clean.
 
 #### Prerequisites
-- ⬜ BE (backend-engineer) has committed and pushed their worktree branch
-- ⬜ CLI (cli-engineer) has committed and pushed their worktree branch
-- ⬜ BE build verification passes in their worktree
-- ⬜ CLI build verification passes in their worktree
+- ✅ BE (backend-engineer) has committed and pushed their worktree branch
+- ✅ CLI (cli-engineer) has committed and pushed their worktree branch
+- ✅ BE build verification passes in their worktree
+- ✅ CLI build verification passes in their worktree
 
 #### Merge Protocol
 1. Lead session creates fresh branch or works on main
@@ -781,12 +781,12 @@ Overall Progress             [███████████         ]  55%
 4. `cmd/ctsnare/main.go` -- CLI agent's version takes precedence
 
 #### Post-Merge Verification
-- ⬜ `go build -o ctsnare ./cmd/ctsnare` succeeds
-- ⬜ `go vet ./...` reports zero issues
-- ⬜ `golangci-lint run ./...` reports zero issues
-- ⬜ `go test ./...` all tests pass
-- ⬜ `./ctsnare watch --help` shows --backtrack flag
-- ⬜ `./ctsnare query --help` shows --bookmarked and --live-only flags
+- ✅ `go build -o ctsnare ./cmd/ctsnare` succeeds
+- ✅ `go vet ./...` reports zero issues
+- ✅ `golangci-lint run ./...` reports zero issues
+- ✅ `go test ./...` all tests pass
+- ✅ `./ctsnare watch --help` shows --backtrack flag
+- ✅ `./ctsnare query --help` shows --bookmarked and --live-only flags
 
 ---
 
@@ -805,19 +805,19 @@ Overall Progress             [███████████         ]  55%
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 7.3.1.1 | Update `internal/cmd/watch.go` `runTUI`: Create the enrichment channel (`enrichChan chan enrichment.EnrichResult`, buffered 256). Create the `Enricher` with store and enrichChan. Start the enricher goroutine (`enricher.Run(ctx)`). After each hit is sent to `hitChan`, also call `enricher.Enqueue(hit.Domain)` so every scored domain gets probed. Bridge the `enrichChan` to the TUI by creating a new `waitForEnrichment` tea.Cmd in the app model that reads from the channel and converts `EnrichResult` to `EnrichmentMsg`. | CLI |
-| ⬜ | 7.3.1.2 | Update `internal/cmd/watch.go` `runTUI`: Wire the discarded domain feed. In the poller, when a domain scores zero, send a `DiscardedDomainMsg` to the TUI. This requires adding a `discardChan chan<- string` parameter to the poller (or using the existing stats channel to piggyback discarded domain names). The simplest approach: add a `discardChan chan string` (buffered 256) alongside hitChan, pass it to the poller manager, and have pollers send discarded domains on it. In the app model, add a `waitForDiscard` tea.Cmd that reads from discardChan and sends `DiscardedDomainMsg`. | CLI |
-| ⬜ | 7.3.1.3 | Update `internal/tui/app.go`: Handle `EnrichmentMsg` in Update -- find the matching hit in the feed's hit buffer by domain name and update its enrichment fields (IsLive, ResolvedIPs, etc.). If the explorer is showing that hit, trigger a refresh. Handle `DiscardedDomainMsg` in Update -- forward to FeedModel. Handle `BookmarkToggleMsg` -- forward to ExplorerModel to refresh the affected row. Handle `DeleteHitsMsg` -- forward to ExplorerModel to reload hits from DB. Add `enrichChan` and `discardChan` fields to AppModel. Wire `waitForEnrichment` and `waitForDiscard` in `Init()`. | CLI |
-| ⬜ | 7.3.1.4 | Update `internal/cmd/watch.go` `runHeadless`: Wire enrichment in headless mode too. Create enricher, start it, enqueue domains from hitChan. Enrichment results are written to DB silently. Drain enrichChan in a background goroutine. Also wire the discardChan drain in headless mode. | CLI |
-| ⬜ | 7.3.1.5 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. | CLI |
+| ✅ | 7.3.1.1 | Update `internal/cmd/watch.go` `runTUI`: Create the enrichment channel (`enrichChan chan enrichment.EnrichResult`, buffered 256). Create the `Enricher` with store and enrichChan. Start the enricher goroutine (`enricher.Run(ctx)`). After each hit is sent to `hitChan`, also call `enricher.Enqueue(hit.Domain)` so every scored domain gets probed. Bridge the `enrichChan` to the TUI by creating a new `waitForEnrichment` tea.Cmd in the app model that reads from the channel and converts `EnrichResult` to `EnrichmentMsg`. | CLI |
+| ✅ | 7.3.1.2 | Update `internal/cmd/watch.go` `runTUI`: Wire the discarded domain feed. In the poller, when a domain scores zero, send a `DiscardedDomainMsg` to the TUI. This requires adding a `discardChan chan<- string` parameter to the poller (or using the existing stats channel to piggyback discarded domain names). The simplest approach: add a `discardChan chan string` (buffered 256) alongside hitChan, pass it to the poller manager, and have pollers send discarded domains on it. In the app model, add a `waitForDiscard` tea.Cmd that reads from discardChan and sends `DiscardedDomainMsg`. | CLI |
+| ✅ | 7.3.1.3 | Update `internal/tui/app.go`: Handle `EnrichmentMsg` in Update -- find the matching hit in the feed's hit buffer by domain name and update its enrichment fields (IsLive, ResolvedIPs, etc.). If the explorer is showing that hit, trigger a refresh. Handle `DiscardedDomainMsg` in Update -- forward to FeedModel. Handle `BookmarkToggleMsg` -- forward to ExplorerModel to refresh the affected row. Handle `DeleteHitsMsg` -- forward to ExplorerModel to reload hits from DB. Add `enrichChan` and `discardChan` fields to AppModel. Wire `waitForEnrichment` and `waitForDiscard` in `Init()`. | CLI |
+| ✅ | 7.3.1.4 | Update `internal/cmd/watch.go` `runHeadless`: Wire enrichment in headless mode too. Create enricher, start it, enqueue domains from hitChan. Enrichment results are written to DB silently. Drain enrichChan in a background goroutine. Also wire the discardChan drain in headless mode. | CLI |
+| ✅ | 7.3.1.5 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test ./...` passes clean. | CLI |
 
 #### 7.3.2 End-to-End Integration Smoke Test
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 7.3.2.1 | Update `internal/cmd/integration_test.go`: Add integration tests for the new features: (1) Test backtrack mode -- start headless with --backtrack 100 against a mock CT log, verify it processes entries from tree_size-100. (2) Test bookmark workflow -- insert hits, bookmark one via store, query with --bookmarked, verify only bookmarked hit returned. (3) Test delete workflow -- insert hits, delete one, verify it is gone from query results. (4) Test enrichment fields in query output -- insert a hit with enrichment data, query as JSON, verify enrichment fields present. | CLI |
-| ⬜ | 7.3.2.2 | Update `internal/cmd/integration_test.go`: Test query with new flags: `--live-only` returns only hits where is_live=true. `--bookmarked` returns only bookmarked hits. Both flags together compose correctly. Test `db export --format jsonl` includes enrichment fields. Test `db export --format csv` includes enrichment column headers. | CLI |
-| ⬜ | 7.3.2.3 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -count=1 ./...` all pass. Manual smoke test: `./ctsnare watch --headless --backtrack 1000 --verbose` starts, processes backlogged entries, and enrichment probes run in background. Ctrl-C shuts down cleanly. | CLI |
+| ✅ | 7.3.2.1 | Update `internal/cmd/integration_test.go`: Add integration tests for the new features: (1) Test backtrack mode -- start headless with --backtrack 100 against a mock CT log, verify it processes entries from tree_size-100. (2) Test bookmark workflow -- insert hits, bookmark one via store, query with --bookmarked, verify only bookmarked hit returned. (3) Test delete workflow -- insert hits, delete one, verify it is gone from query results. (4) Test enrichment fields in query output -- insert a hit with enrichment data, query as JSON, verify enrichment fields present. | CLI |
+| ✅ | 7.3.2.2 | Update `internal/cmd/integration_test.go`: Test query with new flags: `--live-only` returns only hits where is_live=true. `--bookmarked` returns only bookmarked hits. Both flags together compose correctly. Test `db export --format jsonl` includes enrichment fields. Test `db export --format csv` includes enrichment column headers. | CLI |
+| ✅ | 7.3.2.3 | **BUILD CHECK** -- `go build -o ctsnare ./cmd/ctsnare && go vet ./... && golangci-lint run ./... && go test -count=1 ./...` all pass. Manual smoke test: `./ctsnare watch --headless --backtrack 1000 --verbose` starts, processes backlogged entries, and enrichment probes run in background. Ctrl-C shuts down cleanly. | CLI |
 
 ---
 
@@ -1027,6 +1027,6 @@ See `.project/changelog.md` for detailed version history.
 ---
 
 *Last updated: 2026-02-24*
-*Current Phase: Phase 7.1 -- Enhancement Foundation (pending)*
+*Current Phase: Phase 7.3 -- Enhancement Integration (pending)*
 *Previous Milestone: v0.5.0 Feature Complete -- README, Go doc comments, CLI help text, changelog finalized*
 *Next Milestone: v0.6.0 Enhancement Complete -- enrichment pipeline, TUI overhaul, backtrack mode, batch delete, bookmarks*

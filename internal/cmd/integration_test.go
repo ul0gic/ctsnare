@@ -29,6 +29,8 @@ func resetFlags() {
 	querySeverity = ""
 	queryFormat = "table"
 	queryLimit = 50
+	queryBookmarked = false
+	queryLiveOnly = false
 	dbClearConfirm = false
 	dbClearSession = ""
 	dbExportFormat = "jsonl"
@@ -382,4 +384,243 @@ func TestRootHelpShowsSubcommands(t *testing.T) {
 	assert.Contains(t, output, "query")
 	assert.Contains(t, output, "db")
 	assert.Contains(t, output, "profiles")
+}
+
+// --- Phase 7.3 Integration Tests ---
+
+func TestBookmarkWorkflow(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Bookmark one hit.
+	require.NoError(t, store.SetBookmark(ctx, "fake-bitcoin-exchange.xyz", true))
+
+	// Query with --bookmarked — should return only the bookmarked hit.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--bookmarked"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "fake-bitcoin-exchange.xyz")
+	assert.NotContains(t, output, "secure-paypal-login.top")
+	assert.NotContains(t, output, "mywalletcrypto.com")
+	assert.NotContains(t, output, "free-token-claim.buzz")
+
+	store.Close()
+}
+
+func TestDeleteWorkflow(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Delete one hit by domain.
+	require.NoError(t, store.DeleteHit(ctx, "free-token-claim.buzz"))
+
+	// Query all — should have 3 hits, not 4.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--limit", "100"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.NotContains(t, output, "free-token-claim.buzz")
+	assert.Contains(t, output, "fake-bitcoin-exchange.xyz")
+	assert.Contains(t, output, "secure-paypal-login.top")
+	assert.Contains(t, output, "mywalletcrypto.com")
+
+	store.Close()
+}
+
+func TestEnrichmentFieldsInQueryJSON(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Update enrichment data for one hit.
+	require.NoError(t, store.UpdateEnrichment(
+		ctx,
+		"fake-bitcoin-exchange.xyz",
+		true,
+		[]string{"1.2.3.4", "5.6.7.8"},
+		"Cloudflare",
+		200,
+	))
+
+	// Query as JSON — enrichment fields should be present.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--format", "json", "--keyword", "bitcoin"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, `"IsLive":true`)
+	assert.Contains(t, output, `"ResolvedIPs"`)
+	assert.Contains(t, output, "1.2.3.4")
+	assert.Contains(t, output, "5.6.7.8")
+	assert.Contains(t, output, "Cloudflare")
+	assert.Contains(t, output, `"HTTPStatus":200`)
+
+	store.Close()
+}
+
+func TestQueryLiveOnlyFlag(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Mark one hit as live via enrichment.
+	require.NoError(t, store.UpdateEnrichment(
+		ctx,
+		"secure-paypal-login.top",
+		true,
+		[]string{"10.0.0.1"},
+		"AWS",
+		302,
+	))
+
+	// Query with --live-only — should return only the live hit.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--live-only"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "secure-paypal-login.top")
+	assert.NotContains(t, output, "fake-bitcoin-exchange.xyz")
+	assert.NotContains(t, output, "mywalletcrypto.com")
+	assert.NotContains(t, output, "free-token-claim.buzz")
+
+	store.Close()
+}
+
+func TestQueryBookmarkedAndLiveOnlyCompose(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Bookmark two hits, make only one of them live.
+	require.NoError(t, store.SetBookmark(ctx, "fake-bitcoin-exchange.xyz", true))
+	require.NoError(t, store.SetBookmark(ctx, "secure-paypal-login.top", true))
+	require.NoError(t, store.UpdateEnrichment(
+		ctx,
+		"secure-paypal-login.top",
+		true,
+		[]string{"10.0.0.1"},
+		"",
+		200,
+	))
+
+	// Query with both --bookmarked and --live-only — only the one that is both.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--bookmarked", "--live-only"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "secure-paypal-login.top")
+	assert.NotContains(t, output, "fake-bitcoin-exchange.xyz")
+	assert.NotContains(t, output, "mywalletcrypto.com")
+
+	store.Close()
+}
+
+func TestDBExportJSONLIncludesEnrichmentFields(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Add enrichment and bookmark data.
+	require.NoError(t, store.UpdateEnrichment(
+		ctx,
+		"fake-bitcoin-exchange.xyz",
+		true,
+		[]string{"1.2.3.4"},
+		"Cloudflare",
+		200,
+	))
+	require.NoError(t, store.SetBookmark(ctx, "fake-bitcoin-exchange.xyz", true))
+
+	outputFile := filepath.Join(t.TempDir(), "export.jsonl")
+	rootCmd.SetArgs([]string{"db", "export", "--db", dbFile, "--format", "jsonl", "--output", outputFile})
+	err := rootCmd.Execute()
+	assert.NoError(t, err)
+
+	data, readErr := os.ReadFile(outputFile)
+	require.NoError(t, readErr)
+	content := string(data)
+
+	// Verify enrichment fields appear in JSONL output.
+	assert.Contains(t, content, `"IsLive":true`)
+	assert.Contains(t, content, `"Bookmarked":true`)
+	assert.Contains(t, content, "1.2.3.4")
+	assert.Contains(t, content, "Cloudflare")
+	assert.Contains(t, content, `"HTTPStatus":200`)
+
+	store.Close()
+}
+
+func TestDBExportCSVIncludesEnrichmentColumnHeaders(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+	defer store.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "export.csv")
+	rootCmd.SetArgs([]string{"db", "export", "--db", dbFile, "--format", "csv", "--output", outputFile})
+	err := rootCmd.Execute()
+	assert.NoError(t, err)
+
+	data, readErr := os.ReadFile(outputFile)
+	require.NoError(t, readErr)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.NotEmpty(t, lines)
+
+	header := lines[0]
+	assert.Contains(t, header, "is_live")
+	assert.Contains(t, header, "resolved_ips")
+	assert.Contains(t, header, "hosting_provider")
+	assert.Contains(t, header, "http_status")
+	assert.Contains(t, header, "bookmarked")
+	assert.Contains(t, header, "live_checked_at")
+}
+
+func TestDeleteHitsBatch(t *testing.T) {
+	resetFlags()
+	dbFile, store := setupTestDB(t)
+
+	ctx := context.Background()
+
+	// Delete two hits at once.
+	require.NoError(t, store.DeleteHits(ctx, []string{
+		"fake-bitcoin-exchange.xyz",
+		"free-token-claim.buzz",
+	}))
+
+	// Query all — should have 2 remaining.
+	output := captureStdout(t, func() {
+		resetFlags()
+		rootCmd.SetArgs([]string{"query", "--db", dbFile, "--limit", "100"})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.NotContains(t, output, "fake-bitcoin-exchange.xyz")
+	assert.NotContains(t, output, "free-token-claim.buzz")
+	assert.Contains(t, output, "secure-paypal-login.top")
+	assert.Contains(t, output, "mywalletcrypto.com")
+
+	store.Close()
 }

@@ -40,6 +40,7 @@ type Poller struct {
 	pollInterval time.Duration
 	hitChan      chan<- domain.Hit
 	statsChan    chan<- PollStats
+	discardChan  chan<- string
 	backtrack    int64
 }
 
@@ -47,7 +48,8 @@ type Poller struct {
 // parameter controls how many entries behind the current log tip to start.
 // When backtrack > 0, the poller begins at (tree_size - backtrack), giving
 // immediate results on launch. When backtrack == 0, the poller starts at
-// the tip and waits for new entries.
+// the tip and waits for new entries. The discardChan receives domain names
+// that scored zero and were not stored; it may be nil to skip discards.
 func NewPoller(
 	logURL string,
 	logName string,
@@ -58,6 +60,7 @@ func NewPoller(
 	pollInterval time.Duration,
 	hitChan chan<- domain.Hit,
 	statsChan chan<- PollStats,
+	discardChan chan<- string,
 	backtrack int64,
 ) *Poller {
 	return &Poller{
@@ -70,6 +73,7 @@ func NewPoller(
 		pollInterval: pollInterval,
 		hitChan:      hitChan,
 		statsChan:    statsChan,
+		discardChan:  discardChan,
 		backtrack:    backtrack,
 	}
 }
@@ -179,6 +183,12 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 	for _, d := range domains {
 		scored := p.scorer.Score(d, p.profile)
 		if scored.Score == 0 {
+			if p.discardChan != nil {
+				select {
+				case p.discardChan <- d:
+				default:
+				}
+			}
 			continue
 		}
 

@@ -9,14 +9,14 @@ import (
 )
 
 func TestNewApp(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	if app.activeView != viewFeed {
 		t.Errorf("expected initial view to be feed (%d), got %d", viewFeed, app.activeView)
 	}
 }
 
 func TestAppViewSwitchingTab(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	// Provide window size so sub-models are ready
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app = model.(AppModel)
@@ -42,7 +42,7 @@ func TestAppViewSwitchingTab(t *testing.T) {
 
 func TestAppHitMsgUpdatesFeed(t *testing.T) {
 	hitCh := make(chan domain.Hit, 1)
-	app := NewApp(nil, hitCh, nil, "test")
+	app := NewApp(nil, hitCh, nil, nil, nil, "test")
 
 	// Initialize with window size
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -69,7 +69,7 @@ func TestAppHitMsgUpdatesFeed(t *testing.T) {
 }
 
 func TestAppQuitMessage(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app = model.(AppModel)
 
@@ -86,7 +86,7 @@ func TestAppQuitMessage(t *testing.T) {
 }
 
 func TestAppShowDetail(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app = model.(AppModel)
 
@@ -111,7 +111,7 @@ func TestAppShowDetail(t *testing.T) {
 }
 
 func TestAppSwitchViewMsg(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app = model.(AppModel)
 
@@ -135,7 +135,7 @@ func TestAppSwitchViewMsg(t *testing.T) {
 }
 
 func TestAppFilterOverlay(t *testing.T) {
-	app := NewApp(nil, nil, nil, "all")
+	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	app = model.(AppModel)
 

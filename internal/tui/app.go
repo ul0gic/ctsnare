@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/enrichment"
 )
 
 const (
@@ -15,29 +16,40 @@ const (
 
 // AppModel is the root Bubble Tea model that manages view switching and message routing.
 type AppModel struct {
-	activeView int
-	feed       FeedModel
-	explorer   ExplorerModel
-	detail     *DetailModel
-	filter     *FilterModel
-	keys       KeyMap
-	width      int
-	height     int
-	hitChan    <-chan domain.Hit
-	statsChan  <-chan PollStats
+	activeView  int
+	feed        FeedModel
+	explorer    ExplorerModel
+	detail      *DetailModel
+	filter      *FilterModel
+	keys        KeyMap
+	width       int
+	height      int
+	hitChan     <-chan domain.Hit
+	statsChan   <-chan PollStats
+	enrichChan  <-chan enrichment.EnrichResult
+	discardChan <-chan string
 }
 
 // NewApp creates a new root TUI application model.
 // The store may be nil during Phase 2; real wiring happens in Phase 3.
-// The hitChan and statsChan may be nil if the TUI is opened without polling.
-func NewApp(store domain.Store, hitChan <-chan domain.Hit, statsChan <-chan PollStats, profile string) AppModel {
+// Channels may be nil if the TUI is opened without polling or enrichment.
+func NewApp(
+	store domain.Store,
+	hitChan <-chan domain.Hit,
+	statsChan <-chan PollStats,
+	enrichChan <-chan enrichment.EnrichResult,
+	discardChan <-chan string,
+	profile string,
+) AppModel {
 	return AppModel{
-		activeView: viewFeed,
-		feed:       NewFeedModel(profile),
-		explorer:   NewExplorerModel(store),
-		keys:       DefaultKeyMap(),
-		hitChan:    hitChan,
-		statsChan:  statsChan,
+		activeView:  viewFeed,
+		feed:        NewFeedModel(profile),
+		explorer:    NewExplorerModel(store),
+		keys:        DefaultKeyMap(),
+		hitChan:     hitChan,
+		statsChan:   statsChan,
+		enrichChan:  enrichChan,
+		discardChan: discardChan,
 	}
 }
 
@@ -51,6 +63,12 @@ func (m AppModel) Init() tea.Cmd {
 	}
 	if m.statsChan != nil {
 		cmds = append(cmds, waitForStats(m.statsChan))
+	}
+	if m.enrichChan != nil {
+		cmds = append(cmds, waitForEnrichment(m.enrichChan))
+	}
+	if m.discardChan != nil {
+		cmds = append(cmds, waitForDiscard(m.discardChan))
 	}
 	return tea.Batch(cmds...)
 }
@@ -111,10 +129,46 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case EnrichmentMsg:
+		// Update the matching hit in the feed with enrichment data.
+		for i := range m.feed.hits {
+			if m.feed.hits[i].Domain == msg.Domain {
+				m.feed.hits[i].IsLive = msg.IsLive
+				m.feed.hits[i].ResolvedIPs = msg.ResolvedIPs
+				m.feed.hits[i].HostingProvider = msg.HostingProvider
+				m.feed.hits[i].HTTPStatus = msg.HTTPStatus
+				break
+			}
+		}
+		// Also update the explorer's cached hit if it matches.
+		for i := range m.explorer.hits {
+			if m.explorer.hits[i].Domain == msg.Domain {
+				m.explorer.hits[i].IsLive = msg.IsLive
+				m.explorer.hits[i].ResolvedIPs = msg.ResolvedIPs
+				m.explorer.hits[i].HostingProvider = msg.HostingProvider
+				m.explorer.hits[i].HTTPStatus = msg.HTTPStatus
+				break
+			}
+		}
+		// Refresh the detail view if showing this hit.
+		if m.detail != nil && m.detail.hit.Domain == msg.Domain {
+			m.detail.hit.IsLive = msg.IsLive
+			m.detail.hit.ResolvedIPs = msg.ResolvedIPs
+			m.detail.hit.HostingProvider = msg.HostingProvider
+			m.detail.hit.HTTPStatus = msg.HTTPStatus
+		}
+		if m.enrichChan != nil {
+			cmds = append(cmds, waitForEnrichment(m.enrichChan))
+		}
+		return m, tea.Batch(cmds...)
+
 	case DiscardedDomainMsg:
 		var cmd tea.Cmd
 		m.feed, cmd = m.feed.Update(msg)
 		cmds = append(cmds, cmd)
+		if m.discardChan != nil {
+			cmds = append(cmds, waitForDiscard(m.discardChan))
+		}
 		return m, tea.Batch(cmds...)
 
 	case discardTickMsg:
@@ -231,5 +285,35 @@ func waitForStats(ch <-chan PollStats) tea.Cmd {
 			return nil
 		}
 		return StatsMsg{Stats: stats}
+	}
+}
+
+// waitForEnrichment returns a tea.Cmd that reads from the enrichment channel
+// and converts the result to an EnrichmentMsg for TUI consumption.
+func waitForEnrichment(ch <-chan enrichment.EnrichResult) tea.Cmd {
+	return func() tea.Msg {
+		result, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return EnrichmentMsg{
+			Domain:          result.Domain,
+			IsLive:          result.IsLive,
+			ResolvedIPs:     result.ResolvedIPs,
+			HostingProvider: result.HostingProvider,
+			HTTPStatus:      result.HTTPStatus,
+		}
+	}
+}
+
+// waitForDiscard returns a tea.Cmd that reads from the discard channel
+// and converts the domain name to a DiscardedDomainMsg.
+func waitForDiscard(ch <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		domain, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return DiscardedDomainMsg{Domain: domain}
 	}
 }

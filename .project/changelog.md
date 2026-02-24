@@ -7,6 +7,35 @@
 
 ---
 
+## [0.6.2-alpha] - 2026-02-24 — Enhancement Integration (Phase 7.3)
+
+### Added — CLI (cli-engineer) Phase 7.3: Enhancement Integration
+
+#### Wire Enrichment into Watch Command (7.3.1)
+- Bridged enrichment result channel to TUI via `waitForEnrichment` tea.Cmd that converts `EnrichResult` to `EnrichmentMsg`
+- Added `discardChan` (buffered 256) to poller `Manager.Start` and `Poller` — zero-scored domains are sent on it for TUI activity feed display
+- `AppModel` now receives and manages `enrichChan` and `discardChan` — both wired in `Init()` with re-subscription on each message
+- `EnrichmentMsg` handler updates matching hits in feed, explorer, and detail views with live enrichment data (IsLive, ResolvedIPs, HostingProvider, HTTPStatus)
+- `DiscardedDomainMsg` handler re-subscribes to discard channel after each message
+- Headless mode now starts enrichment pipeline — creates enricher, enqueues domains from hitChan, drains enrichment results and discards silently
+
+#### End-to-End Integration Tests (7.3.2)
+- Bookmark workflow: insert hits, bookmark via store, query with `--bookmarked`, verify only bookmarked hit returned
+- Delete workflow: single delete and batch delete verified through query absence
+- Enrichment fields in JSON output: `IsLive`, `ResolvedIPs`, `HostingProvider`, `HTTPStatus` verified present after `UpdateEnrichment`
+- `--live-only` flag: returns only enriched live domains
+- `--bookmarked` + `--live-only` composition: both flags AND correctly
+- `db export --format jsonl` includes enrichment fields
+- `db export --format csv` includes enrichment column headers (`is_live`, `resolved_ips`, `hosting_provider`, `http_status`, `bookmarked`, `live_checked_at`)
+- `resetFlags()` now covers `queryBookmarked` and `queryLiveOnly` to prevent test leaks
+
+### Changed
+- `tui.NewApp` signature expanded to accept `enrichChan` and `discardChan` parameters
+- `poller.Manager.Start` signature expanded with `discardChan chan<- string` parameter
+- `poller.NewPoller` signature expanded with `discardChan chan<- string` parameter
+
+---
+
 ## [0.6.0-alpha] - 2026-02-24 — Enhancement Foundation (Phase 7.1)
 
 ### Added — BE (backend-engineer) Phase 7.1: Enhancement Foundation

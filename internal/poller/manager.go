@@ -34,9 +34,11 @@ func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, pr
 }
 
 // Start launches a polling goroutine for each CT log in the config. All
-// pollers share the provided hit and stats channels. Returns immediately;
-// pollers run until the context is cancelled.
-func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsChan chan<- PollStats) error {
+// pollers share the provided hit, stats, and discard channels. The
+// discardChan receives domain names that scored zero; it may be nil to
+// skip discard reporting. Returns immediately; pollers run until the
+// context is cancelled.
+func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsChan chan<- PollStats, discardChan chan<- string) error {
 	ctx, m.cancel = context.WithCancel(ctx)
 
 	for _, logCfg := range m.cfg.CTLogs {
@@ -50,6 +52,7 @@ func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsCha
 			m.cfg.PollInterval,
 			hitChan,
 			statsChan,
+			discardChan,
 			m.backtrack,
 		)
 

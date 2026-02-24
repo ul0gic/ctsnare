@@ -114,7 +114,7 @@ func TestManager_StartAndStop(t *testing.T) {
 	statsChan := make(chan PollStats, 10)
 
 	ctx := context.Background()
-	err := mgr.Start(ctx, hitChan, statsChan)
+	err := mgr.Start(ctx, hitChan, statsChan, nil)
 	require.NoError(t, err)
 
 	// Give poller time to make at least one cycle.
@@ -154,7 +154,7 @@ func TestManager_ContextCancellationStopsAllPollers(t *testing.T) {
 	statsChan := make(chan PollStats, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	err := mgr.Start(ctx, hitChan, statsChan)
+	err := mgr.Start(ctx, hitChan, statsChan, nil)
 	require.NoError(t, err)
 
 	// Allow pollers to start.
@@ -220,7 +220,7 @@ func TestManager_MultipleLogConfigs(t *testing.T) {
 	statsChan := make(chan PollStats, 100)
 
 	ctx := context.Background()
-	err := mgr.Start(ctx, hitChan, statsChan)
+	err := mgr.Start(ctx, hitChan, statsChan, nil)
 	require.NoError(t, err)
 
 	// Wait for pollers to make requests.
@@ -250,7 +250,7 @@ func TestManager_EmptyLogConfig(t *testing.T) {
 	statsChan := make(chan PollStats, 10)
 
 	ctx := context.Background()
-	err := mgr.Start(ctx, hitChan, statsChan)
+	err := mgr.Start(ctx, hitChan, statsChan, nil)
 	require.NoError(t, err)
 
 	// Stop immediately -- nothing should be running.

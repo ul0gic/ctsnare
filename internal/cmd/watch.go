@@ -102,34 +102,57 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	// Create poller manager.
 	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack)
 
+	// Discard channel streams zero-scored domain names for TUI activity feed.
+	discardChan := make(chan string, 256)
+
 	if watchHeadless {
-		return runHeadless(pollerMgr, hitChan, pollerStatsChan)
+		return runHeadless(store, pollerMgr, hitChan, pollerStatsChan, discardChan)
 	}
-	return runTUI(store, pollerMgr, hitChan, pollerStatsChan, prof.Name)
+	return runTUI(store, pollerMgr, hitChan, pollerStatsChan, discardChan, prof.Name)
 }
 
-// runHeadless starts pollers without a TUI, blocking until SIGINT/SIGTERM.
+// runHeadless starts pollers and enrichment without a TUI, blocking until SIGINT/SIGTERM.
 func runHeadless(
+	store *storage.DB,
 	pollerMgr *poller.Manager,
 	hitChan chan domain.Hit,
 	statsChan chan poller.PollStats,
+	discardChan chan string,
 ) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	slog.Info("starting headless mode")
 
-	if err := pollerMgr.Start(ctx, hitChan, statsChan); err != nil {
+	if err := pollerMgr.Start(ctx, hitChan, statsChan, discardChan); err != nil {
 		return fmt.Errorf("starting pollers: %w", err)
 	}
 
-	// Drain hit and stats channels in background so pollers never block.
+	// Start enrichment pipeline — probes domains in the background and
+	// persists results to the store. Results are drained silently.
+	enrichResultChan := make(chan enrichment.EnrichResult, 256)
+	enricher := enrichment.NewEnricher(store, enrichResultChan)
 	go func() {
-		for range hitChan {
+		_ = enricher.Run(ctx)
+	}()
+
+	// Drain hit channel, enqueuing each domain for enrichment.
+	go func() {
+		for hit := range hitChan {
+			enricher.Enqueue(hit.Domain)
+		}
+	}()
+	// Drain stats, enrichment result, and discard channels so pollers never block.
+	go func() {
+		for range statsChan {
 		}
 	}()
 	go func() {
-		for range statsChan {
+		for range enrichResultChan {
+		}
+	}()
+	go func() {
+		for range discardChan {
 		}
 	}()
 
@@ -140,6 +163,7 @@ func runHeadless(
 	pollerMgr.Stop()
 	close(hitChan)
 	close(statsChan)
+	close(discardChan)
 
 	slog.Info("headless mode shutdown complete")
 	return nil
@@ -151,6 +175,7 @@ func runTUI(
 	pollerMgr *poller.Manager,
 	hitChan chan domain.Hit,
 	pollerStatsChan chan poller.PollStats,
+	discardChan chan string,
 	profileName string,
 ) error {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -161,7 +186,7 @@ func runTUI(
 	tuiStatsChan := make(chan tui.PollStats, 64)
 	go bridgePollerStats(ctx, pollerStatsChan, tuiStatsChan)
 
-	if err := pollerMgr.Start(ctx, hitChan, pollerStatsChan); err != nil {
+	if err := pollerMgr.Start(ctx, hitChan, pollerStatsChan, discardChan); err != nil {
 		return fmt.Errorf("starting pollers: %w", err)
 	}
 
@@ -196,8 +221,8 @@ func runTUI(
 		}
 	}()
 
-	// Create TUI app with tapped hit channel.
-	app := tui.NewApp(store, tuiHitChan, tuiStatsChan, profileName)
+	// Create TUI app with tapped hit channel, enrichment channel, and discard channel.
+	app := tui.NewApp(store, tuiHitChan, tuiStatsChan, enrichResultChan, discardChan, profileName)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
 	// Run TUI -- blocks until user quits.
@@ -213,6 +238,7 @@ func runTUI(
 	pollerMgr.Stop()
 	close(hitChan)
 	close(pollerStatsChan)
+	close(discardChan)
 
 	slog.Info("watch command shutdown complete")
 	return nil
