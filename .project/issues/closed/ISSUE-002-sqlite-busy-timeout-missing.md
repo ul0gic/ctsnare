@@ -6,7 +6,7 @@
 **Discovered During**: Phase 4, Task 4.2.1 (confirmed by QA concurrent write test failures)
 **Affected Files**: `internal/storage/db.go`
 **Assigned To**: backend-engineer
-**Status**: Open
+**Status**: Resolved
 
 ---
 
@@ -50,9 +50,9 @@ This should be placed in `NewDB()` between the WAL mode and foreign key PRAGMAs.
 
 ## Resolution
 
-[Pending Phase 5 remediation]
+Added `PRAGMA busy_timeout=5000` in `internal/storage/db.go` NewDB() between WAL mode and foreign key PRAGMAs. SQLite now waits up to 5 seconds for locks to clear before returning SQLITE_BUSY, eliminating silent data loss under concurrent writes from multiple poller goroutines.
 
 ---
 
 *Filed: 2026-02-24*
-*Resolved: pending*
+*Resolved: 2026-02-24*

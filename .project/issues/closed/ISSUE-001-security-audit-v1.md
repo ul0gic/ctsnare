@@ -6,7 +6,7 @@
 **Discovered During**: Phase 4, Tasks 4.2.1–4.2.5
 **Affected Files**: See individual findings below
 **Assigned To**: backend-engineer (Phase 5 remediation)
-**Status**: Open
+**Status**: Resolved
 
 ---
 
@@ -277,4 +277,13 @@ The following security practices are well-implemented:
 ---
 
 *Filed: 2026-02-24*
-*Resolved: pending Phase 5 remediation*
+*Resolved: 2026-02-24 — All CRITICAL/HIGH/MEDIUM findings addressed. LOW/informational findings documented with safety comments.*
+
+### Resolution Summary
+
+- **FINDING-01 (MEDIUM)**: Fixed. Added `io.LimitReader` with 50 MB cap and `limitedReadCloser` wrapper in `internal/poller/ctlog.go` doGet method.
+- **FINDING-02 (MEDIUM)**: Fixed. Set `CheckRedirect` on HTTP client to return `http.ErrUseLastResponse`, disabling all redirects.
+- **FINDING-03 (LOW)**: Fixed. Added security invariant comment explaining allowlist safety above ORDER BY interpolation in `internal/storage/hits.go`.
+- **FINDING-04 (LOW)**: No action needed — informational for CLI tool.
+- **FINDING-05 (LOW)**: No action needed — informational for CLI tool.
+- **FINDING-06 (HIGH)**: Fixed. Added `PRAGMA busy_timeout=5000` in `internal/storage/db.go` NewDB(). See ISSUE-002 for details.

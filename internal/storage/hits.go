@@ -156,6 +156,9 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	if strings.EqualFold(filter.SortDir, "ASC") {
 		sortDir = "ASC"
 	}
+	// SECURITY: sortBy is sanitized through sanitizeSortColumn() allowlist;
+	// sortDir is limited to "ASC"/"DESC" by the check above. Both are safe
+	// for direct interpolation. ORDER BY does not support parameterized placeholders.
 	query += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortDir)
 
 	// Pagination.

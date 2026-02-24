@@ -37,11 +37,27 @@ type CTLogClient struct {
 	baseURL    string
 }
 
+// maxResponseBodySize caps HTTP response reads at 50 MB to prevent
+// memory exhaustion from a compromised or malicious CT log server.
+const maxResponseBodySize = 50 * 1024 * 1024
+
+// limitedReadCloser wraps a size-limited Reader with the original body's
+// Close method, ensuring the underlying connection is released.
+type limitedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
 // NewCTLogClient creates a client for the given CT log base URL.
+// Redirects are disabled because CT log APIs should never redirect,
+// and following redirects could enable SSRF to internal endpoints.
 func NewCTLogClient(baseURL string) *CTLogClient {
 	return &CTLogClient{
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 		baseURL: baseURL,
 	}
@@ -124,7 +140,14 @@ func (c *CTLogClient) doGet(ctx context.Context, url string) (io.ReadCloser, err
 		}
 
 		if resp.StatusCode == http.StatusOK {
-			return resp.Body, nil
+			// Cap response size to prevent memory exhaustion from
+			// oversized payloads. The underlying body is still closed
+			// by the caller via the wrapping ReadCloser.
+			limited := &limitedReadCloser{
+				Reader: io.LimitReader(resp.Body, maxResponseBodySize),
+				Closer: resp.Body,
+			}
+			return limited, nil
 		}
 
 		resp.Body.Close()

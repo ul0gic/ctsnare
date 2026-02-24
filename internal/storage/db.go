@@ -37,6 +37,14 @@ func NewDB(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("enabling WAL mode: %w", err)
 	}
 
+	// Set busy timeout so concurrent writers wait for locks instead of
+	// immediately returning SQLITE_BUSY. Without this, poller goroutines
+	// silently drop hits when write contention occurs.
+	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("setting busy timeout: %w", err)
+	}
+
 	// Enable foreign key enforcement.
 	if _, err := sqlDB.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		sqlDB.Close()
