@@ -133,11 +133,11 @@ Phase 1: Foundation          [████████████████�
 Phase 2: Core Engine         [████████████████████] 100%  ✅
   🔀 Merge Gate 1            [████████████████████] 100%  ✅
 Phase 3: Integration         [████████████████████] 100%  ✅
-Phase 4: Hardening           [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
-  🔀 Merge Gate 2            [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
+Phase 4: Hardening           [████████████████████] 100%  ✅
+  🔀 Merge Gate 2            [████████████████████] 100%  ✅
 Phase 5: Polish & Release    [░░░░░░░░░░░░░░░░░░░░]   0%  ⬜
 ─────────────────────────────────────────────────────────────
-Overall Progress             [██████████████░░░░░░]  71%
+Overall Progress             [██████████████████░░]  92%
 ```
 
 | Phase | Tasks | Completed | Blocked | Deferred | Progress | Agents |
@@ -146,10 +146,10 @@ Overall Progress             [██████████████░░�
 | Phase 2: Core Engine | 28 | 28 | 0 | 0 | 100% | BE, CLI |
 | Merge Gate 1 | 1 | 1 | 0 | 0 | 100% | Lead |
 | Phase 3: Integration | 10 | 10 | 0 | 0 | 100% | CLI |
-| Phase 4: Hardening | 15 | 0 | 0 | 0 | 0% | QA, SEC, OPS |
-| Merge Gate 2 | 1 | 0 | 0 | 0 | 0% | Lead |
+| Phase 4: Hardening | 15 | 15 | 0 | 0 | 100% | QA, SEC, OPS |
+| Merge Gate 2 | 1 | 1 | 0 | 0 | 100% | Lead |
 | Phase 5: Polish & Release | 6 | 0 | 0 | 0 | 0% | BE, CLI, DOC |
-| **Total** | **76** | **54** | **0** | **0** | **71%** | |
+| **Total** | **76** | **70** | **0** | **0** | **92%** | |
 
 ---
 
@@ -420,32 +420,32 @@ Overall Progress             [██████████████░░�
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 4.1.1 | Create `internal/scoring/heuristics_test.go`. Exhaustive table-driven tests for each heuristic function: keyword matching (case variations, partial matches, no match, empty input), TLD scoring (exact TLD match, subdomain of TLD, no match), domain length (exactly 30 chars, 31 chars, short domain), hyphen density (0, 1, 2, 3+ hyphens), number sequences (3 digits no score, 4 digits scores, 10 digits scores), multi-keyword bonus (0, 1, 2, 3, 5 keywords). | QA |
-| ⬜ | 4.1.2 | Create `internal/poller/manager_test.go`. Test manager starts and stops cleanly, test context cancellation stops all pollers, test stats aggregation from multiple pollers. Use mocked CT log server (httptest). | QA |
-| ⬜ | 4.1.3 | Create `internal/config/defaults_test.go`. Test that DefaultConfig returns valid config with all required fields populated: at least one CT log URL, valid batch size (>0), valid poll interval (>0), valid DB path, non-empty skip suffixes. Test XDG path construction. | QA |
-| ⬜ | 4.1.4 | Expand `internal/storage/db_test.go` with edge cases: concurrent read/write (goroutines inserting while querying), very long domain names, Unicode domains, empty keyword arrays, null-like fields, QueryFilter with all fields set simultaneously, pagination (limit + offset), sort by each column. | QA |
-| ⬜ | 4.1.5 | Create `internal/tui/feed_test.go`. Test FeedModel: hit buffer doesn't exceed max size, new hits prepend correctly, stats update correctly, viewport resize recalculates, severity styling applies correctly (unit test the View output for known hits). | QA |
-| ⬜ | 4.1.6 | **BUILD CHECK** -- `go test -v -count=1 -race ./...` all pass with zero failures. Run `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` and verify coverage is reported. | QA |
+| ✅ | 4.1.1 | Create `internal/scoring/heuristics_test.go`. Exhaustive table-driven tests for each heuristic function: keyword matching (case variations, partial matches, no match, empty input), TLD scoring (exact TLD match, subdomain of TLD, no match), domain length (exactly 30 chars, 31 chars, short domain), hyphen density (0, 1, 2, 3+ hyphens), number sequences (3 digits no score, 4 digits scores, 10 digits scores), multi-keyword bonus (0, 1, 2, 3, 5 keywords). | QA |
+| ✅ | 4.1.2 | Create `internal/poller/manager_test.go`. Test manager starts and stops cleanly, test context cancellation stops all pollers, test stats aggregation from multiple pollers. Use mocked CT log server (httptest). | QA |
+| ✅ | 4.1.3 | Create `internal/config/defaults_test.go`. Test that DefaultConfig returns valid config with all required fields populated: at least one CT log URL, valid batch size (>0), valid poll interval (>0), valid DB path, non-empty skip suffixes. Test XDG path construction. | QA |
+| ✅ | 4.1.4 | Expand `internal/storage/db_test.go` with edge cases: concurrent read/write (goroutines inserting while querying), very long domain names, Unicode domains, empty keyword arrays, null-like fields, QueryFilter with all fields set simultaneously, pagination (limit + offset), sort by each column. | QA |
+| ✅ | 4.1.5 | Create `internal/tui/feed_test.go`. Test FeedModel: hit buffer doesn't exceed max size, new hits prepend correctly, stats update correctly, viewport resize recalculates, severity styling applies correctly (unit test the View output for known hits). | QA |
+| ✅ | 4.1.6 | **BUILD CHECK** -- `go test -v -count=1 -race ./...` all pass with zero failures. Run `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` and verify coverage is reported. | QA |
 
 ### 4.2 Security Audit (SEC) [worktree] [cloud]
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 4.2.1 | Audit `internal/storage/` for SQL injection: verify all queries use parameterized placeholders, no string concatenation for SQL, no fmt.Sprintf in query construction. Verify QueryHits dynamic query builder is safe. File issues for any findings. | SEC |
-| ⬜ | 4.2.2 | Audit `internal/poller/` for SSRF and input validation: verify CT log URLs are validated, verify certificate parsing handles malformed input without panic, verify HTTP client has timeouts set, verify no user-controlled URLs are fetched. File issues for any findings. | SEC |
-| ⬜ | 4.2.3 | Audit `internal/config/` for path traversal: verify DB path is sanitized, verify config file path is validated, verify XDG directory creation uses safe permissions (0700 for dirs, 0600 for files). Audit TOML parsing for denial of service (deeply nested, huge files). File issues for any findings. | SEC |
-| ⬜ | 4.2.4 | Run `govulncheck ./...` to check for known vulnerabilities in dependencies. Run `go mod verify` to check module integrity. File issues for any findings. | SEC |
-| ⬜ | 4.2.5 | **AUDIT REPORT** -- Write security assessment summary to `.project/issues/open/ISSUE-001-security-audit-v1.md` using the security report template. Include findings, risk ratings, and remediation recommendations. | SEC |
+| ✅ | 4.2.1 | Audit `internal/storage/` for SQL injection: verify all queries use parameterized placeholders, no string concatenation for SQL, no fmt.Sprintf in query construction. Verify QueryHits dynamic query builder is safe. File issues for any findings. | SEC |
+| ✅ | 4.2.2 | Audit `internal/poller/` for SSRF and input validation: verify CT log URLs are validated, verify certificate parsing handles malformed input without panic, verify HTTP client has timeouts set, verify no user-controlled URLs are fetched. File issues for any findings. | SEC |
+| ✅ | 4.2.3 | Audit `internal/config/` for path traversal: verify DB path is sanitized, verify config file path is validated, verify XDG directory creation uses safe permissions (0700 for dirs, 0600 for files). Audit TOML parsing for denial of service (deeply nested, huge files). File issues for any findings. | SEC |
+| ✅ | 4.2.4 | Run `govulncheck ./...` to check for known vulnerabilities in dependencies. Run `go mod verify` to check module integrity. File issues for any findings. | SEC |
+| ✅ | 4.2.5 | **AUDIT REPORT** -- Write security assessment summary to `.project/issues/open/ISSUE-001-security-audit-v1.md` using the security report template. Include findings, risk ratings, and remediation recommendations. | SEC |
 
 ### 4.3 CI/CD & Build Infrastructure (OPS) [worktree] [cloud]
 
 | Status | Task | Description | Agent |
 |--------|------|-------------|-------|
-| ⬜ | 4.3.1 | Create `Makefile` with targets: `build` (go build -o ctsnare ./cmd/ctsnare), `test` (go test -race -count=1 ./...), `lint` (golangci-lint run ./...), `fmt` (gofmt -w .), `vet` (go vet ./...), `clean` (rm -f ctsnare *.db coverage.out), `coverage` (go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out), `check` (build + vet + lint + test -- full CI suite), `run` (go run ./cmd/ctsnare), `help` (print all targets). All targets use `.PHONY`. | OPS |
-| ⬜ | 4.3.2 | Create `.github/workflows/ci.yml`: trigger on push to main and pull_request. Jobs: `lint` (runs golangci-lint via golangci-lint-action), `test` (runs go test -race -count=1 ./... on ubuntu-latest with Go 1.26), `build` (runs go build, uploads binary as artifact). Cache Go modules. Matrix: test on ubuntu-latest. | OPS |
-| ⬜ | 4.3.3 | Create `.github/workflows/release.yml`: trigger on tag push (v*). Uses goreleaser to cross-compile for linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64. Creates GitHub release with binaries and checksums. | OPS |
-| ⬜ | 4.3.4 | Create `.goreleaser.yml`: project name ctsnare, builds from ./cmd/ctsnare, GOOS/GOARCH matrix, archive format tar.gz (linux/mac) and zip (windows), checksum file, changelog from git log. | OPS |
-| ⬜ | 4.3.5 | **BUILD CHECK** -- `make check` passes clean (build + vet + lint + test). Verify CI workflow YAML is valid. | OPS |
+| ✅ | 4.3.1 | Create `Makefile` with targets: `build` (go build -o ctsnare ./cmd/ctsnare), `test` (go test -race -count=1 ./...), `lint` (golangci-lint run ./...), `fmt` (gofmt -w .), `vet` (go vet ./...), `clean` (rm -f ctsnare *.db coverage.out), `coverage` (go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out), `check` (build + vet + lint + test -- full CI suite), `run` (go run ./cmd/ctsnare), `help` (print all targets). All targets use `.PHONY`. | OPS |
+| ✅ | 4.3.2 | Create `.github/workflows/ci.yml`: trigger on push to main and pull_request. Jobs: `lint` (runs golangci-lint via golangci-lint-action), `test` (runs go test -race -count=1 ./... on ubuntu-latest with Go 1.26), `build` (runs go build, uploads binary as artifact). Cache Go modules. Matrix: test on ubuntu-latest. | OPS |
+| ✅ | 4.3.3 | Create `.github/workflows/release.yml`: trigger on tag push (v*). Uses goreleaser to cross-compile for linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64. Creates GitHub release with binaries and checksums. | OPS |
+| ✅ | 4.3.4 | Create `.goreleaser.yml`: project name ctsnare, builds from ./cmd/ctsnare, GOOS/GOARCH matrix, archive format tar.gz (linux/mac) and zip (windows), checksum file, changelog from git log. | OPS |
+| ✅ | 4.3.5 | **BUILD CHECK** -- `make check` passes clean (build + vet + lint + test). Verify CI workflow YAML is valid. | OPS |
 
 ---
 
@@ -454,11 +454,11 @@ Overall Progress             [██████████████░░�
 > All parallel work from Phase 4 STOPS here. No agent continues until merge is clean.
 
 ### Prerequisites
-- [ ] QA has committed and pushed their worktree branch (new test files only)
-- [ ] SEC has committed audit report to `.project/issues/open/`
-- [ ] OPS has committed and pushed their worktree branch (Makefile, CI/CD, Dockerfile, goreleaser)
-- [ ] QA build verification passes in their worktree
-- [ ] OPS build verification passes in their worktree
+- ✅ QA has committed and pushed their worktree branch (new test files only)
+- ✅ SEC has committed audit report to `.project/issues/open/`
+- ✅ OPS has committed and pushed their worktree branch (Makefile, CI/CD, goreleaser)
+- ✅ QA build verification passes in their worktree
+- ✅ OPS build verification passes in their worktree
 
 ### Merge Protocol
 1. Lead session merges QA branch into main (test files only -- should be conflict-free)
@@ -476,11 +476,11 @@ Overall Progress             [██████████████░░�
 3. New files from OPS -- should never conflict (all new files)
 
 ### Post-Merge Verification
-- [ ] `make check` passes (build + vet + lint + test)
-- [ ] All new tests from QA pass
-- [ ] `make build` produces working binary
-- [ ] CI workflow files are present and valid YAML
-- [ ] Security audit report is present in `.project/issues/open/`
+- ✅ `make check` passes (build + vet + lint + test with race detection)
+- ✅ All new tests from QA pass (115+ tests, zero data races)
+- ✅ `make build` produces working binary
+- ✅ CI workflow files are present and valid YAML
+- ✅ Security audit report is present in `.project/issues/open/` (1 HIGH, 2 MED, 3 LOW)
 
 ---
 

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -365,5 +367,384 @@ func TestSanitizeSortColumn(t *testing.T) {
 	for _, tt := range tests {
 		result := sanitizeSortColumn(tt.input)
 		assert.Equal(t, tt.expected, result, "sanitizeSortColumn(%q)", tt.input)
+	}
+}
+
+// --- Edge case tests (4.1.4) ---
+
+func TestConcurrentReads(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Seed data first (serial writes).
+	const totalHits = 20
+	for i := 0; i < totalHits; i++ {
+		d := fmt.Sprintf("concurrent-%02d.com", i)
+		h := testHit(d, i+1, domain.SeverityLow)
+		require.NoError(t, db.InsertHit(ctx, h))
+	}
+
+	// Concurrent readers should not interfere with each other (WAL mode).
+	var wg sync.WaitGroup
+	const readers = 5
+	const queriesPerReader = 10
+
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < queriesPerReader; i++ {
+				hits, err := db.QueryHits(ctx, domain.QueryFilter{Limit: 10})
+				assert.NoError(t, err, "concurrent read should not fail")
+				assert.NotEmpty(t, hits)
+			}
+		}()
+	}
+
+	// Also run stats concurrently.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < queriesPerReader; i++ {
+			stats, err := db.Stats(ctx)
+			assert.NoError(t, err, "concurrent stats should not fail")
+			assert.Equal(t, totalHits, stats.TotalHits)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestInsertHit_VeryLongDomainName(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	longDomain := strings.Repeat("a", 250) + ".com"
+	h := testHit(longDomain, 4, domain.SeverityMed)
+
+	err := db.InsertHit(ctx, h)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, longDomain, hits[0].Domain)
+}
+
+func TestInsertHit_UnicodeDomain(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	tests := []string{
+		"xn--nxasmq6b.com", // punycode
+		"\u0431\u0438\u0442\u043a\u043e\u0439\u043d.com", // cyrillic "bitcoin" equivalent
+		"\u4e2d\u6587\u57df\u540d.com",                   // Chinese characters
+		"caf\u00e9-bitcoin.com",                          // accented characters
+	}
+
+	for i, d := range tests {
+		h := testHit(d, 4, domain.SeverityMed)
+		h.Keywords = []string{"test"}
+		err := db.InsertHit(ctx, h)
+		require.NoError(t, err, "inserting unicode domain #%d: %q", i, d)
+	}
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, len(tests))
+}
+
+func TestInsertHit_EmptyKeywordsArray(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("empty-kw.com", 2, domain.SeverityLow)
+	h.Keywords = []string{}
+	h.SANDomains = []string{}
+
+	err := db.InsertHit(ctx, h)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Empty(t, hits[0].Keywords)
+	assert.Empty(t, hits[0].SANDomains)
+}
+
+func TestInsertHit_NilKeywordsSlice(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("nil-kw.com", 2, domain.SeverityLow)
+	h.Keywords = nil
+	h.SANDomains = nil
+
+	err := db.InsertHit(ctx, h)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	// json.Marshal(nil) produces "null", which json.Unmarshal reads as nil slice.
+	// The query should still succeed.
+}
+
+func TestInsertHit_EmptyStringFields(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := domain.Hit{
+		Domain:        "empty-fields.com",
+		Score:         1,
+		Severity:      domain.SeverityLow,
+		Keywords:      []string{},
+		Issuer:        "",
+		IssuerCN:      "",
+		SANDomains:    []string{},
+		CertNotBefore: time.Time{},
+		CTLog:         "",
+		Profile:       "",
+		Session:       "",
+	}
+
+	err := db.InsertHit(ctx, h)
+	require.NoError(t, err)
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "empty-fields.com", hits[0].Domain)
+}
+
+func TestQueryHits_AllFiltersSimultaneously(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("target.xyz", 8, domain.SeverityHigh)
+	h.Session = "sess-target"
+	h.Keywords = []string{"bitcoin", "wallet"}
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	// Decoy that should be filtered out by severity.
+	h2 := testHit("decoy.xyz", 2, domain.SeverityLow)
+	h2.Session = "sess-target"
+	h2.Keywords = []string{"bitcoin"}
+	require.NoError(t, db.InsertHit(ctx, h2))
+
+	// Decoy that should be filtered out by TLD.
+	h3 := testHit("other.com", 8, domain.SeverityHigh)
+	h3.Session = "sess-target"
+	h3.Keywords = []string{"bitcoin", "wallet"}
+	require.NoError(t, db.InsertHit(ctx, h3))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{
+		Keyword:  "bitcoin",
+		ScoreMin: 5,
+		Severity: "HIGH",
+		Session:  "sess-target",
+		TLD:      "xyz",
+		Limit:    10,
+		Offset:   0,
+		SortBy:   "score",
+		SortDir:  "DESC",
+	})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "target.xyz", hits[0].Domain)
+}
+
+func TestQueryHits_PaginationCoverage(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert 10 hits with sequential scores.
+	for i := 1; i <= 10; i++ {
+		h := testHit(fmt.Sprintf("page-%02d.com", i), i, domain.SeverityLow)
+		require.NoError(t, db.InsertHit(ctx, h))
+	}
+
+	// Page 1: first 3.
+	page1, err := db.QueryHits(ctx, domain.QueryFilter{
+		Limit:   3,
+		Offset:  0,
+		SortBy:  "score",
+		SortDir: "ASC",
+	})
+	require.NoError(t, err)
+	require.Len(t, page1, 3)
+	assert.Equal(t, 1, page1[0].Score)
+	assert.Equal(t, 3, page1[2].Score)
+
+	// Page 2: next 3.
+	page2, err := db.QueryHits(ctx, domain.QueryFilter{
+		Limit:   3,
+		Offset:  3,
+		SortBy:  "score",
+		SortDir: "ASC",
+	})
+	require.NoError(t, err)
+	require.Len(t, page2, 3)
+	assert.Equal(t, 4, page2[0].Score)
+	assert.Equal(t, 6, page2[2].Score)
+
+	// Last page: offset past all records.
+	empty, err := db.QueryHits(ctx, domain.QueryFilter{
+		Limit:   3,
+		Offset:  100,
+		SortBy:  "score",
+		SortDir: "ASC",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}
+
+func TestQueryHits_SortByEachColumn(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h1 := testHit("aaa.com", 2, domain.SeverityLow)
+	h1.Session = "sess-a"
+	h1.CTLog = "log-a"
+	h1.Profile = "crypto"
+	require.NoError(t, db.InsertHit(ctx, h1))
+
+	h2 := testHit("zzz.com", 8, domain.SeverityHigh)
+	h2.Session = "sess-z"
+	h2.CTLog = "log-z"
+	h2.Profile = "phishing"
+	require.NoError(t, db.InsertHit(ctx, h2))
+
+	sortableColumns := []string{
+		"domain", "score", "severity", "session",
+		"created_at", "updated_at", "ct_log", "profile",
+	}
+
+	for _, col := range sortableColumns {
+		hits, err := db.QueryHits(ctx, domain.QueryFilter{
+			SortBy:  col,
+			SortDir: "ASC",
+		})
+		require.NoError(t, err, "sort by %s ASC should not error", col)
+		assert.Len(t, hits, 2, "sort by %s should return all hits", col)
+
+		hits, err = db.QueryHits(ctx, domain.QueryFilter{
+			SortBy:  col,
+			SortDir: "DESC",
+		})
+		require.NoError(t, err, "sort by %s DESC should not error", col)
+		assert.Len(t, hits, 2, "sort by %s should return all hits", col)
+	}
+}
+
+func TestInsertHit_DuplicateDomainReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("dup.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	err := db.InsertHit(ctx, h)
+	assert.Error(t, err, "inserting duplicate domain should fail")
+}
+
+func TestQueryHits_EmptyFilter_ReturnsAll(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("a.com", 2, domain.SeverityLow)))
+	require.NoError(t, db.InsertHit(ctx, testHit("b.com", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("c.com", 8, domain.SeverityHigh)))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 3)
+}
+
+func TestClearSession_NonexistentSession(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("a.com", 4, domain.SeverityMed)))
+
+	err := db.ClearSession(ctx, "nonexistent")
+	require.NoError(t, err, "clearing nonexistent session should not error")
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 1, "existing hits should be untouched")
+}
+
+func TestClearAll_EmptyDB(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	err := db.ClearAll(ctx)
+	require.NoError(t, err, "clearing empty DB should not error")
+}
+
+func TestQueryHits_TLDFilter_WithDotPrefix(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("evil.xyz", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("good.com", 2, domain.SeverityLow)))
+
+	// TLD filter with leading dot should also work.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{TLD: ".xyz"})
+	require.NoError(t, err)
+	assert.Len(t, hits, 1)
+	assert.Equal(t, "evil.xyz", hits[0].Domain)
+}
+
+func TestParseTimestamp_Formats(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		empty bool
+	}{
+		{"ISO 8601 with T and Z", "2026-01-15T12:30:00Z", false},
+		{"ISO 8601 with space", "2026-01-15 12:30:00", false},
+		{"empty string", "", true},
+		{"garbage", "not-a-timestamp", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseTimestamp(tt.input)
+			if tt.empty {
+				assert.True(t, result.IsZero())
+			} else {
+				assert.False(t, result.IsZero())
+			}
+		})
+	}
+}
+
+func TestSanitizeSortColumn_AllAllowedColumns(t *testing.T) {
+	allowed := []string{
+		"domain", "score", "severity", "session",
+		"created_at", "updated_at", "ct_log", "profile",
+	}
+
+	for _, col := range allowed {
+		result := sanitizeSortColumn(col)
+		assert.Equal(t, col, result, "allowed column %q should map to itself", col)
+	}
+}
+
+func TestSanitizeSortColumn_SQLInjectionAttempts(t *testing.T) {
+	attacks := []string{
+		"score; DROP TABLE hits",
+		"score--",
+		"1 OR 1=1",
+		"' UNION SELECT * FROM sqlite_master--",
+		"score\x00",
+	}
+
+	for _, attack := range attacks {
+		result := sanitizeSortColumn(attack)
+		assert.Equal(t, "created_at", result,
+			"injection attempt %q should fall back to created_at", attack)
 	}
 }

@@ -7,6 +7,39 @@
 
 ---
 
+## [Unreleased] — Phase 4 Hardening
+
+### Testing — QA (qa-engineer) Phase 4.1 Test Coverage Expansion
+- Exhaustive table-driven heuristics tests: 53 test cases covering matchKeywords, scoreTLD, scoreDomainLength, scoreHyphenDensity, scoreNumberSequences, scoreMultiKeywordBonus, registeredPart with edge cases (empty input, nil slices, unicode, case variations, boundary values)
+- Manager lifecycle tests with httptest mock CT log server: start/stop, context cancellation stops all pollers, multiple log configs verified via HTTP request counting, empty config, stop-before-start safety
+- Config defaults validation: CT log URLs are valid HTTPS, batch size positive, poll interval positive, DB path non-empty, XDG path construction with/without XDG_DATA_HOME, applyDefaults fills zeros while preserving existing values
+- Storage edge cases: concurrent reads under WAL mode, 253-char domain names, unicode/punycode/cyrillic/CJK domains, empty/nil keyword arrays, empty string fields, all QueryFilter fields set simultaneously, pagination coverage (page1/page2/past-end), sort by every allowed column, duplicate domain insert error, nonexistent session clear, SQL injection attempts on sort column
+- Feed model behavior tests: initial state, hit prepend order, buffer max size enforcement (500 cap), stats message updates, view output contains domain/header/status bar, viewport resize, severity styling, keyword count accumulation and sort order, content width narrow/wide, prependHit/updateKeywordCounts helper functions
+- Full suite passes: `go test -v -count=1 -race ./...` -- zero failures, zero data races
+- Coverage: scoring 100%, profile 100%, config 95.1%, storage 82.0%, overall 63.6%
+
+### Security — SEC (security-engineer) Phase 4.2 Security Audit
+- Security audit v1 complete: audited internal/storage/ (SQL injection), internal/poller/ (SSRF, input validation), internal/config/ (path traversal, DoS)
+- govulncheck: zero known vulnerabilities in dependencies
+- go mod verify: all modules verified, no integrity issues
+- 6 findings documented in .project/issues/open/ISSUE-001-security-audit-v1.md (1 HIGH, 2 MEDIUM, 3 LOW/informational)
+- FINDING-01 (MEDIUM): Unbounded HTTP response body read in poller — recommend io.LimitReader
+- FINDING-02 (MEDIUM): HTTP client follows redirects without restriction — recommend disabling redirects
+- FINDING-03 (LOW): fmt.Sprintf for ORDER BY clause — safe due to allowlist, recommend adding safety comment
+- FINDING-04 (LOW): No config file size limit — informational for CLI tool
+- FINDING-05 (LOW): DB path from config not validated — informational for CLI tool
+- FINDING-06 (HIGH): Missing PRAGMA busy_timeout causes silent data loss under concurrent writes — see ISSUE-002
+- Filed ISSUE-002-sqlite-busy-timeout-missing.md for the missing busy_timeout PRAGMA
+- SQL injection defenses verified: all queries use parameterized placeholders, sort column allowlisted
+
+### Added — OPS (devops-engineer) Phase 4.3 CI/CD & Build Infrastructure
+- Makefile with build, test, lint, fmt, vet, clean, coverage, check, run, help targets
+- GitHub Actions CI workflow: lint (golangci-lint-action), test (race detection), build (artifact upload) on push/PR to main
+- GitHub Actions release workflow: GoReleaser on tag push (v*) with GitHub release creation
+- GoReleaser config: cross-compile linux/darwin/windows amd64/arm64, tar.gz + zip archives, checksums
+
+---
+
 ## [0.3.0] - 2026-02-24
 
 ### Added — CLI (cli-engineer) Phase 3 Integration
