@@ -111,6 +111,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case DiscardedDomainMsg:
+		var cmd tea.Cmd
+		m.feed, cmd = m.feed.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+
+	case discardTickMsg:
+		var cmd tea.Cmd
+		m.feed, cmd = m.feed.Update(msg)
+		return m, cmd
+
 	case StatsMsg:
 		var cmd tea.Cmd
 		m.feed, cmd = m.feed.Update(msg)

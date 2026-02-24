@@ -99,8 +99,13 @@ func (m DetailModel) renderContent() string {
 	sevStyle := SeverityStyle(string(m.hit.Severity))
 
 	b.WriteString(renderField("Domain", m.hit.Domain))
-	b.WriteString(renderField("Score", fmt.Sprintf("%d", m.hit.Score)))
+	b.WriteString(renderField("Score", sevStyle.Render(fmt.Sprintf("%d", m.hit.Score))))
 	b.WriteString(renderField("Severity", sevStyle.Render(string(m.hit.Severity))))
+
+	// Bookmark indicator.
+	if m.hit.Bookmarked {
+		b.WriteString(renderField("Bookmarked", StyleBookmarked.Render("*")))
+	}
 	b.WriteByte('\n')
 
 	b.WriteString(renderField("Issuer Org", m.hit.Issuer))
@@ -136,6 +141,35 @@ func (m DetailModel) renderContent() string {
 		b.WriteString("  (none)\n")
 	}
 	b.WriteByte('\n')
+
+	// Enrichment data section — only shown if enrichment has run.
+	if !m.hit.LiveCheckedAt.IsZero() {
+		b.WriteString(StyleTitle.Render("Enrichment Data"))
+		b.WriteByte('\n')
+
+		liveStr := lipgloss.NewStyle().Foreground(colorHighSeverity).Render("No")
+		if m.hit.IsLive {
+			liveStr = StyleLiveDomain.Render("Yes")
+		}
+		b.WriteString(renderField("Live", liveStr))
+
+		if len(m.hit.ResolvedIPs) > 0 {
+			b.WriteString(renderField("Resolved IPs", strings.Join(m.hit.ResolvedIPs, ", ")))
+		} else {
+			b.WriteString(renderField("Resolved IPs", "(none)"))
+		}
+
+		if m.hit.HostingProvider != "" {
+			b.WriteString(renderField("Hosting Provider", m.hit.HostingProvider))
+		}
+
+		if m.hit.HTTPStatus > 0 {
+			b.WriteString(renderField("HTTP Status", fmt.Sprintf("%d", m.hit.HTTPStatus)))
+		}
+
+		b.WriteString(renderField("Last Checked", m.hit.LiveCheckedAt.Format("2006-01-02 15:04:05")))
+		b.WriteByte('\n')
+	}
 
 	if !m.hit.CreatedAt.IsZero() {
 		b.WriteString(renderField("First Seen", m.hit.CreatedAt.Format("2006-01-02 15:04:05")))

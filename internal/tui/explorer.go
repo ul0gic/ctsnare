@@ -235,9 +235,15 @@ func (m ExplorerModel) hitsToRows() []table.Row {
 			issuer = issuer[:17] + "..."
 		}
 		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
+
+		// Apply severity colors to the severity and score columns.
+		sevStyle := SeverityStyle(string(hit.Severity))
+		sevCell := sevStyle.Render(string(hit.Severity))
+		scoreCell := sevStyle.Render(fmt.Sprintf("%d", hit.Score))
+
 		rows = append(rows, table.Row{
-			string(hit.Severity),
-			fmt.Sprintf("%d", hit.Score),
+			sevCell,
+			scoreCell,
 			dom,
 			kw,
 			issuer,
