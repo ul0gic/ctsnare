@@ -5,5 +5,10 @@
 dist/
 coverage.out
 *.prof
-.claude/
-.project/
+# Claude local-only files (settings, caches, worktrees, transcripts)
+.claude/settings.local.json
+.claude/worktrees/
+.claude/todos/
+.claude/projects/
+.claude/teams/
+.claude/tasks/
