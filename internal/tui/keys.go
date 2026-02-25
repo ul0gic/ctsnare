@@ -23,6 +23,7 @@ type KeyMap struct {
 	SelectAll     key.Binding
 	DeselectAll   key.Binding
 	ConfirmDelete key.Binding
+	Pause         key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings for the application.
@@ -103,6 +104,10 @@ func DefaultKeyMap() KeyMap {
 		ConfirmDelete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete selected"),
+		),
+		Pause: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "pause/resume"),
 		),
 	}
 }

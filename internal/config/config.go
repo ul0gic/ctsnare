@@ -69,16 +69,16 @@ func DefaultConfig() *Config {
 	return &Config{
 		CTLogs: []CTLogConfig{
 			{
-				URL:  "https://ct.googleapis.com/logs/us1/argon2025h1",
-				Name: "Google Argon 2025h1",
+				URL:  "https://ct.googleapis.com/logs/us1/argon2026h1",
+				Name: "Google Argon 2026h1",
 			},
 			{
-				URL:  "https://ct.googleapis.com/logs/us1/argon2025h2",
-				Name: "Google Argon 2025h2",
+				URL:  "https://ct.googleapis.com/logs/us1/argon2026h2",
+				Name: "Google Argon 2026h2",
 			},
 			{
-				URL:  "https://ct.googleapis.com/logs/eu1/xenon2025h1",
-				Name: "Google Xenon 2025h1",
+				URL:  "https://ct.googleapis.com/logs/eu1/xenon2026h1",
+				Name: "Google Xenon 2026h1",
 			},
 		},
 		DefaultProfile: "all",

@@ -1,8 +1,13 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/ul0gic/ctsnare/internal/domain"
 	"github.com/ul0gic/ctsnare/internal/enrichment"
 )
@@ -102,12 +107,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Tab toggles between feed and explorer
 		if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
+			var cmd tea.Cmd
 			if m.activeView == viewFeed {
 				m.activeView = viewExplorer
+				// Auto-reload explorer from DB when switching to it.
+				m.explorer.loading = true
+				cmd = m.explorer.loadHitsCmd()
 			} else {
 				m.activeView = viewFeed
 			}
-			return m, nil
+			return m, cmd
 		}
 
 		// Filter overlay toggle
@@ -195,6 +204,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.explorer, cmd = m.explorer.Update(msg)
 		return m, cmd
 
+	case deleteStatusMsg:
+		var cmd tea.Cmd
+		m.explorer, cmd = m.explorer.Update(msg)
+		return m, cmd
+
 	case BookmarkToggleMsg:
 		var cmd tea.Cmd
 		m.explorer, cmd = m.explorer.Update(msg)
@@ -264,6 +278,117 @@ func (m AppModel) View() string {
 		return m.explorer.View()
 	}
 	return m.feed.View()
+}
+
+// --- Shared rendering helpers for Option B layout ---
+
+// renderTabBar renders the shared tab bar wrapped in a rounded border box.
+// activeView is one of viewFeed, viewExplorer, viewDetail.
+// extra is right-aligned metadata (e.g. hit count, time).
+func renderTabBar(activeView, width int, extra string) string {
+	appName := StyleAppName.Render("ctsnare")
+
+	tabs := []struct {
+		label string
+		view  int
+	}{
+		{"Feed", viewFeed},
+		{"Explorer", viewExplorer},
+	}
+	if activeView == viewDetail {
+		tabs = append(tabs, struct {
+			label string
+			view  int
+		}{"Detail", viewDetail})
+	}
+
+	var tabParts []string
+	for _, t := range tabs {
+		if t.view == activeView {
+			tabParts = append(tabParts, StyleTabActive.Render(t.label))
+		} else {
+			tabParts = append(tabParts, StyleTabInactive.Render(t.label))
+		}
+	}
+
+	left := " " + appName + "  " + strings.Join(tabParts, " ")
+	right := ""
+	if extra != "" {
+		right = StyleHelpDesc.Render(extra) + " "
+	}
+
+	innerWidth := width - 2 // account for left+right border chars
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	gap := strings.Repeat(" ", max(0, innerWidth-lipgloss.Width(left)-lipgloss.Width(right)))
+	content := left + gap + right
+
+	return StylePanel.Width(width - 2).Render(content)
+}
+
+// renderTitledPanel wraps content in a rounded border box with a title inlined in the top border.
+// The title appears after the top-left corner: ╭─ Title ───...─╮
+func renderTitledPanel(title, content string, width int) string {
+	border := lipgloss.RoundedBorder()
+	innerWidth := width - 2 // left + right border chars
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	// Build the custom top border with the title embedded.
+	titleRendered := " " + title + " "
+	titleLen := lipgloss.Width(titleRendered)
+	remaining := innerWidth - 1 - titleLen // 1 for the dash after corner
+	if remaining < 0 {
+		remaining = 0
+	}
+	topBorder := string(border.TopLeft) + string(border.Top) + titleRendered + strings.Repeat(string(border.Top), remaining) + string(border.TopRight)
+	topBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(topBorder)
+
+	// Build bottom border.
+	bottomBorder := string(border.BottomLeft) + strings.Repeat(string(border.Bottom), innerWidth) + string(border.BottomRight)
+	bottomBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(bottomBorder)
+
+	// Wrap each content line with side borders.
+	borderStyle := lipgloss.NewStyle().Foreground(colorSubtle)
+	leftBorder := borderStyle.Render(string(border.Left))
+	rightBorder := borderStyle.Render(string(border.Right))
+
+	lines := strings.Split(content, "\n")
+	var body strings.Builder
+	for _, line := range lines {
+		lineWidth := lipgloss.Width(line)
+		pad := strings.Repeat(" ", max(0, innerWidth-lineWidth))
+		body.WriteString(leftBorder + line + pad + rightBorder + "\n")
+	}
+
+	return topBorder + "\n" + body.String() + bottomBorder
+}
+
+// formatClock returns the current time formatted as HH:MM.
+func formatClock() string {
+	return time.Now().Format("15:04")
+}
+
+// formatNumber adds commas to a number for readability (e.g. 12847 -> "12,847").
+func formatNumber(n int64) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result strings.Builder
+	remainder := len(s) % 3
+	if remainder > 0 {
+		result.WriteString(s[:remainder])
+	}
+	for i := remainder; i < len(s); i += 3 {
+		if result.Len() > 0 {
+			result.WriteByte(',')
+		}
+		result.WriteString(s[i : i+3])
+	}
+	return result.String()
 }
 
 // waitForHit returns a tea.Cmd that reads from the hit channel and sends a HitMsg.

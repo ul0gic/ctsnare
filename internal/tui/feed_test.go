@@ -126,8 +126,8 @@ func TestFeedModel_View_ContainsStatusBar(t *testing.T) {
 	}})
 
 	view := m.View()
-	assert.Contains(t, view, "Scanned: 500")
-	assert.Contains(t, view, "Hits: 10")
+	assert.Contains(t, view, "Scanned 500")
+	assert.Contains(t, view, "Hits 10")
 	assert.Contains(t, view, "crypto")
 }
 
@@ -187,14 +187,16 @@ func TestFeedModel_KeywordCountsUpdate(t *testing.T) {
 
 func TestFeedModel_ContentWidthNarrow(t *testing.T) {
 	m := initFeedModel(t, "test", 80, 40)
-	// Below keywordSidebarMin (100), content width should be full width.
-	assert.Equal(t, 80, m.contentWidth())
+	// Below keywordSidebarMin (120), content width = width - 2 (panel borders).
+	assert.Equal(t, 80-2, m.feedContentWidth())
 }
 
 func TestFeedModel_ContentWidthWide(t *testing.T) {
-	m := initFeedModel(t, "test", 120, 40)
-	// Above keywordSidebarMin, sidebar takes 26 chars.
-	assert.Equal(t, 120-26, m.contentWidth())
+	m := initFeedModel(t, "test", 140, 40)
+	// Add keywords so sidebar appears (sidebar needs len(topKeywords) > 0).
+	m.topKeywords = []domain.KeywordCount{{Keyword: "test", Count: 1}}
+	// Above keywordSidebarMin (120) with keywords: width - 2 (panel borders) - sidebarPanelWidth(26).
+	assert.Equal(t, 140-2-sidebarPanelWidth, m.feedContentWidth())
 }
 
 func TestFeedModel_MinimumContentHeight(t *testing.T) {

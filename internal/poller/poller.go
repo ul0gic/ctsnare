@@ -201,6 +201,7 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 			Profile:       p.profile.Name,
 			SANDomains:    domains,
 			CertNotBefore: cert.NotBefore,
+			CreatedAt:     time.Now(),
 		}
 
 		// Populate issuer fields from certificate.
@@ -209,6 +210,18 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 		}
 		hit.IssuerCN = cert.Issuer.CommonName
 
+		// Send all scored hits to the live feed for visibility.
+		select {
+		case p.hitChan <- hit:
+		default:
+		}
+
+		// Only persist MED+ (score >= 4) to the database. LOW-scoring
+		// heuristic-only hits are noise — no keyword matched.
+		if scored.Score < 4 {
+			continue
+		}
+
 		if err := p.store.UpsertHit(ctx, hit); err != nil {
 			slog.Warn("failed to upsert hit",
 				"domain", d, "error", err)
@@ -216,13 +229,6 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 		}
 
 		stats.HitsFound++
-
-		// Send hit to TUI channel.
-		select {
-		case p.hitChan <- hit:
-		default:
-			// Don't block if channel is full.
-		}
 	}
 }
 

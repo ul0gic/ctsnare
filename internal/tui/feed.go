@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,26 +15,19 @@ import (
 
 const (
 	maxFeedHits       = 500
-	keywordSidebarMin = 100
+	keywordSidebarMin = 120 // sidebar panel appears at 120+ cols
 	topKeywordsCount  = 10
-	maxDiscards       = 50
-	discardFadeSecs   = 2
+	sidebarPanelWidth = 26 // including panel borders
 )
 
-// discardEntry tracks a discarded (zero-score) domain with an expiry time.
-type discardEntry struct {
-	Domain string
-	FadeAt time.Time
-}
-
-// discardTickMsg fires periodically to expire old discards from the feed.
+// discardTickMsg fires periodically to keep the TUI responsive.
 type discardTickMsg time.Time
 
 // FeedModel displays a live scrollable feed of domain hits from CT log polling.
 type FeedModel struct {
 	hits         []domain.Hit
-	discards     []discardEntry
 	discardCount int64
+	lowCount     int64 // LOW-scored hits filtered from display
 	viewport     viewport.Model
 	stats        PollStats
 	topKeywords  []domain.KeywordCount
@@ -43,13 +37,13 @@ type FeedModel struct {
 	height       int
 	ready        bool
 	autoScroll   bool // true when viewport tracks newest entries (top)
+	paused       bool // when true, new hits are counted but not added to display
 }
 
 // NewFeedModel creates a new live feed view.
 func NewFeedModel(profile string) FeedModel {
 	return FeedModel{
 		hits:        make([]domain.Hit, 0, maxFeedHits),
-		discards:    make([]discardEntry, 0, maxDiscards),
 		topKeywords: make([]domain.KeywordCount, 0, topKeywordsCount),
 		profile:     profile,
 		keys:        DefaultKeyMap(),
@@ -70,13 +64,12 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		headerHeight := 2
-		statusHeight := 2 // status bar + help bar
-		contentHeight := m.height - headerHeight - statusHeight
+		// Layout: tabBar(3) + feedPanel(top+bottom border = 2) + statsPanel(3) + helpBar(1) = 9 lines of chrome
+		contentHeight := m.height - 9
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
-		contentWidth := m.contentWidth()
+		contentWidth := m.feedContentWidth()
 		if !m.ready {
 			m.viewport = viewport.New(contentWidth, contentHeight)
 			m.viewport.MouseWheelEnabled = true
@@ -89,8 +82,16 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		return m, nil
 
 	case HitMsg:
-		m.hits = prependHit(m.hits, msg.Hit, maxFeedHits)
+		// Filter LOW-scored hits from the feed — they're heuristic-only noise.
+		if msg.Hit.Score < 4 {
+			m.lowCount++
+			return m, nil
+		}
 		m.topKeywords = updateKeywordCounts(m.topKeywords, msg.Hit.Keywords)
+		if m.paused {
+			return m, nil
+		}
+		m.hits = prependHit(m.hits, msg.Hit, maxFeedHits)
 		if m.ready {
 			m.viewport.SetContent(m.renderHits())
 			if m.autoScroll {
@@ -101,34 +102,10 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 
 	case DiscardedDomainMsg:
 		m.discardCount++
-		entry := discardEntry{
-			Domain: msg.Domain,
-			FadeAt: time.Now().Add(discardFadeSecs * time.Second),
-		}
-		m.discards = append([]discardEntry{entry}, m.discards...)
-		if len(m.discards) > maxDiscards {
-			m.discards = m.discards[:maxDiscards]
-		}
-		if m.ready {
-			m.viewport.SetContent(m.renderHits())
-			if m.autoScroll {
-				m.viewport.GotoTop()
-			}
-		}
 		return m, nil
 
 	case discardTickMsg:
-		now := time.Now()
-		filtered := m.discards[:0]
-		for _, d := range m.discards {
-			if d.FadeAt.After(now) {
-				filtered = append(filtered, d)
-			}
-		}
-		m.discards = filtered
-		if m.ready {
-			m.viewport.SetContent(m.renderHits())
-		}
+		// Tick still fires to keep the TUI responsive; just re-subscribe.
 		return m, tickDiscards()
 
 	case StatsMsg:
@@ -136,6 +113,11 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Toggle pause with 'p'.
+		if key.Matches(msg, m.keys.Pause) {
+			m.paused = !m.paused
+			return m, nil
+		}
 		if m.ready {
 			m.viewport, cmd = m.viewport.Update(msg)
 			// If user scrolled away from top, pause auto-scroll.
@@ -158,140 +140,200 @@ func (m FeedModel) View() string {
 		return "Initializing feed..."
 	}
 
-	header := m.renderHeader()
-	status := m.renderStatusBar()
-	helpBar := m.renderHelpBar()
-
-	mainContent := m.viewport.View()
-
-	if m.width >= keywordSidebarMin && len(m.topKeywords) > 0 {
-		sidebar := m.renderSidebar()
-		mainContent = lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			mainContent,
-			sidebar,
-		)
+	// Tab bar with live/paused indicator and profile.
+	var liveTag string
+	if m.paused {
+		liveTag = lipgloss.NewStyle().Foreground(colorHighSeverity).Bold(true).Render("PAUSED")
+	} else if !m.autoScroll {
+		liveTag = lipgloss.NewStyle().Foreground(colorMedSeverity).Bold(true).Render("SCROLL-PAUSED")
+	} else {
+		liveTag = StyleLiveDomain.Render("LIVE")
 	}
+	tabExtra := liveTag + " " + StyleHelpDesc.Render("("+m.profile+")") + " " + StyleHelpDesc.Render(formatClock())
+	tabBar := renderTabBar(viewFeed, m.width, tabExtra)
+
+	// Feed content wrapped in titled panel.
+	feedPanel := m.renderFeedPanel()
+
+	// Stats wrapped in titled panel.
+	statsPanel := m.renderStatsPanel()
+
+	// Help bar sits below all panels.
+	helpBar := m.renderHelpBar()
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
-		mainContent,
-		status,
+		tabBar,
+		feedPanel,
+		statsPanel,
 		helpBar,
 	)
 }
 
-func (m FeedModel) contentWidth() int {
-	if m.width >= keywordSidebarMin {
-		return m.width - 26
+// feedContentWidth returns the width available for the viewport content inside the feed panel.
+func (m FeedModel) feedContentWidth() int {
+	// Subtract 2 for the panel's left+right border chars.
+	w := m.width - 2
+	if m.width >= keywordSidebarMin && len(m.topKeywords) > 0 {
+		w -= sidebarPanelWidth
 	}
-	return m.width
+	if w < 20 {
+		w = 20
+	}
+	return w
 }
 
-func (m FeedModel) renderHeader() string {
-	title := StyleTitle.Render("Live Feed")
-	scrollIndicator := StyleLiveDomain.Render("[LIVE]")
-	if !m.autoScroll {
-		scrollIndicator = lipgloss.NewStyle().Foreground(colorMedSeverity).Bold(true).Render("[PAUSED]")
+// renderFeedPanel renders the feed viewport wrapped in a titled panel,
+// with an optional sidebar panel at 120+ columns.
+func (m FeedModel) renderFeedPanel() string {
+	feedContent := m.viewport.View()
+	hasSidebar := m.width >= keywordSidebarMin && len(m.topKeywords) > 0
+
+	if hasSidebar {
+		// Feed panel takes remaining width after sidebar.
+		feedPanelWidth := m.width - sidebarPanelWidth
+		feedBox := renderTitledPanel("Live Feed", feedContent, feedPanelWidth)
+
+		// Sidebar panel.
+		sidebarContent := m.renderSidebarContent()
+		sidebarBox := renderTitledPanel("Top Keywords", sidebarContent, sidebarPanelWidth)
+
+		return lipgloss.JoinHorizontal(lipgloss.Top, feedBox, sidebarBox)
 	}
-	profileTag := StyleHelpDesc.Render(fmt.Sprintf("[%s]", m.profile))
-	right := scrollIndicator + " " + profileTag
-	gap := strings.Repeat(" ", max(0, m.width-lipgloss.Width(title)-lipgloss.Width(right)))
-	return StyleHeader.Width(m.width).Render(title + gap + right)
+
+	return renderTitledPanel("Live Feed", feedContent, m.width)
 }
 
-func (m FeedModel) renderStatusBar() string {
-	scanned := StyleHelpDesc.Render("Scanned: ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(fmt.Sprintf("%d", m.stats.CertsScanned))
-	hits := StyleHelpDesc.Render(" | Hits: ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%d", m.stats.HitsFound))
+// renderStatsPanel renders the stats bar wrapped in a titled panel.
+func (m FeedModel) renderStatsPanel() string {
+	scanned := StyleHelpDesc.Render("Scanned ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(formatNumber(m.stats.CertsScanned))
+	hits := StyleHelpDesc.Render("  Hits ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%d", m.stats.HitsFound))
 
 	rateColor := colorLowSeverity
 	if m.stats.CertsPerSec == 0 {
 		rateColor = colorHighSeverity
 	}
-	rate := StyleHelpDesc.Render(" | Rate: ") + lipgloss.NewStyle().Foreground(rateColor).Render(fmt.Sprintf("%.0f certs/s", m.stats.CertsPerSec))
+	rate := StyleHelpDesc.Render("  Rate ") + lipgloss.NewStyle().Foreground(rateColor).Render(fmt.Sprintf("%.0f c/s", m.stats.CertsPerSec))
+	hpm := StyleHelpDesc.Render("  Hits/min ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%.1f", m.stats.HitsPerMin))
+	logs := StyleHelpDesc.Render("  Logs ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(fmt.Sprintf("%d", m.stats.ActiveLogs))
 
-	hpm := StyleHelpDesc.Render(" | Hits/min: ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%.1f", m.stats.HitsPerMin))
-	discarded := StyleHelpDesc.Render(" | Discarded: ") + StyleHelpDesc.Render(fmt.Sprintf("%d", m.discardCount))
-	logs := StyleHelpDesc.Render(" | Logs: ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(fmt.Sprintf("%d", m.stats.ActiveLogs))
-	prof := StyleHelpDesc.Render(" | Profile: ") + StyleHelpDesc.Render(m.profile)
+	statsLine := " " + scanned + hits + rate + hpm + logs
 
-	return StyleStatusBar.Width(m.width).Render(" " + scanned + hits + rate + hpm + discarded + logs + prof)
+	// Add extras at wider widths.
+	if m.width >= 100 {
+		low := StyleHelpDesc.Render("  Low ") + StyleHelpDesc.Render(formatNumber(m.lowCount))
+		discarded := StyleHelpDesc.Render("  Discarded ") + StyleHelpDesc.Render(formatNumber(m.discardCount))
+		prof := StyleHelpDesc.Render("  Profile ") + StyleHelpDesc.Render(m.profile)
+		statsLine += low + discarded + prof
+	}
+
+	return renderTitledPanel("Stats", statsLine, m.width)
 }
 
 func (m FeedModel) renderHelpBar() string {
-	sep := StyleHelpDesc.Render(" | ")
+	sep := StyleHelpDesc.Render("  ")
 	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
-		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + sep +
-		StyleHelpKey.Render("?") + StyleHelpDesc.Render("=help") + sep +
-		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll")
-	return StyleStatusBar.Width(m.width).Render(" " + help)
+		StyleHelpKey.Render("p") + StyleHelpDesc.Render("=pause") + sep +
+		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll") + sep +
+		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit")
+	return " " + help
 }
 
 func (m FeedModel) renderHits() string {
-	if len(m.hits) == 0 && len(m.discards) == 0 {
+	if len(m.hits) == 0 {
 		return StyleHelpDesc.Render("  Waiting for hits...")
 	}
 
 	var b strings.Builder
-	hitIdx := 0
-	discardIdx := 0
 
-	// Interleave hits and discards. Hits are primary; insert discards between them.
-	for hitIdx < len(m.hits) || discardIdx < len(m.discards) {
-		// Show a hit line.
-		if hitIdx < len(m.hits) {
-			if b.Len() > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(m.renderHitLine(m.hits[hitIdx]))
-			hitIdx++
-		}
+	// Column header row.
+	b.WriteString(m.renderHeaderLine())
+	b.WriteByte('\n')
 
-		// Interleave up to 2 discards after each hit to keep feed alive.
-		for i := 0; i < 2 && discardIdx < len(m.discards); i++ {
-			if b.Len() > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(m.renderDiscardLine(m.discards[discardIdx]))
-			discardIdx++
-		}
+	for _, hit := range m.hits {
+		b.WriteByte('\n')
+		b.WriteString(m.renderHitLine(hit))
 	}
 
 	return b.String()
 }
 
-func (m FeedModel) renderHitLine(hit domain.Hit) string {
-	ts := hit.CreatedAt.Format("15:04:05")
-	sev := string(hit.Severity)
-	sevStyle := SeverityStyle(sev)
-	sevTag := sevStyle.Render(fmt.Sprintf("[%-4s]", sev))
-	score := sevStyle.Render(fmt.Sprintf("%2d", hit.Score))
-	domainStr := hit.Domain
-	if len(domainStr) > 40 {
-		domainStr = domainStr[:37] + "..."
+func (m FeedModel) renderHeaderLine() string {
+	headerStyle := StyleHelpDesc
+
+	domWidth := 35
+	if m.width >= 100 {
+		domWidth = 38
 	}
-	domainRendered := sevStyle.Render(domainStr)
-	if hit.IsLive {
-		domainRendered = StyleLiveDomain.Render(domainStr)
+
+	line := " " + headerStyle.Render(fmt.Sprintf("%-8s", "TIME")) +
+		" " + headerStyle.Render(fmt.Sprintf(" %-4s", "SEV")) +
+		" " + headerStyle.Render(fmt.Sprintf("%2s", "SC")) +
+		" " + headerStyle.Render(fmt.Sprintf("%-*s", domWidth, "DOMAIN"))
+
+	if m.width >= 80 {
+		line += " " + headerStyle.Render(fmt.Sprintf("%-22s", "KEYWORDS"))
 	}
-	kw := strings.Join(hit.Keywords, ",")
-	if len(kw) > 30 {
-		kw = kw[:27] + "..."
+	if m.width >= 100 {
+		line += " " + headerStyle.Render(fmt.Sprintf("%-15s", "ISSUER"))
 	}
-	issuer := hit.IssuerCN
-	if len(issuer) > 20 {
-		issuer = issuer[:17] + "..."
-	}
-	return fmt.Sprintf(" %s %s %s %-40s %-30s %s", ts, sevTag, score, domainRendered, kw, issuer)
+
+	return line
 }
 
-func (m FeedModel) renderDiscardLine(d discardEntry) string {
-	domainStr := d.Domain
-	if len(domainStr) > 60 {
-		domainStr = domainStr[:57] + "..."
+func (m FeedModel) renderHitLine(hit domain.Hit) string {
+	ts := hit.CreatedAt.Format("15:04:05")
+
+	sev := string(hit.Severity)
+	sevStyle := SeverityStyle(sev)
+
+	// Pad plain text to fixed widths BEFORE applying ANSI styles.
+	sevTag := sevStyle.Render(fmt.Sprintf(" %-4s", sev))
+	score := sevStyle.Render(fmt.Sprintf("%2d", hit.Score))
+
+	// Responsive domain width: use available space.
+	domWidth := 35
+	if m.width >= 100 {
+		domWidth = 38
 	}
-	return StyleDiscardedDomain.Render(fmt.Sprintf("          %-60s", domainStr))
+
+	domainStr := hit.Domain
+	if len(domainStr) > domWidth {
+		domainStr = domainStr[:domWidth-3] + "..."
+	}
+	paddedDomain := fmt.Sprintf("%-*s", domWidth, domainStr)
+	domainRendered := sevStyle.Render(paddedDomain)
+	if hit.IsLive {
+		domainRendered = StyleLiveDomain.Render(paddedDomain)
+	}
+
+	line := " " + ts + " " + sevTag + " " + score + " " + domainRendered
+
+	// Responsive columns: keywords at 80+, issuer at 100+.
+	if m.width >= 80 {
+		kw := strings.Join(hit.Keywords, ",")
+		if kw == "" {
+			kw = "—"
+		}
+		kwWidth := 22
+		if len(kw) > kwWidth {
+			kw = kw[:kwWidth-3] + "..."
+		}
+		kwRendered := fmt.Sprintf("%-*s", kwWidth, kw)
+		line += " " + kwRendered
+	}
+
+	if m.width >= 100 {
+		issuer := hit.IssuerCN
+		issuerWidth := 15
+		if len(issuer) > issuerWidth {
+			issuer = issuer[:issuerWidth-3] + "..."
+		}
+		issuerRendered := fmt.Sprintf("%-*s", issuerWidth, issuer)
+		line += " " + issuerRendered
+	}
+
+	return line
 }
 
 func renderSeverityTag(severity string) string {
@@ -299,17 +341,23 @@ func renderSeverityTag(severity string) string {
 	return style.Render(fmt.Sprintf("[%-4s]", severity))
 }
 
-func (m FeedModel) renderSidebar() string {
+// renderSidebarContent renders the keyword list content (without panel wrapping).
+func (m FeedModel) renderSidebarContent() string {
 	var b strings.Builder
-	b.WriteString(StyleTitle.Render("Top Keywords"))
-	b.WriteByte('\n')
 	for i, kw := range m.topKeywords {
 		if i >= topKeywordsCount {
 			break
 		}
-		b.WriteString(fmt.Sprintf(" %2d. %-14s %d\n", i+1, kw.Keyword, kw.Count))
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		keyword := kw.Keyword
+		if len(keyword) > 14 {
+			keyword = keyword[:11] + "..."
+		}
+		b.WriteString(fmt.Sprintf(" %2d. %-14s %d", i+1, keyword, kw.Count))
 	}
-	return StyleBorder.Width(24).Render(b.String())
+	return b.String()
 }
 
 // tickDiscards returns a command that fires a discard tick after 500ms.

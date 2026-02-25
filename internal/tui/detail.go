@@ -39,10 +39,12 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		contentHeight := m.height - 4
+		// Layout: tabBar(3) + panel top/bottom borders(2) + helpBar(1) = 6 lines of chrome.
+		contentHeight := m.height - 6
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
+		// Content width is inside the panel borders (2 chars).
 		contentWidth := m.width - 4
 		if contentWidth < 20 {
 			contentWidth = 20
@@ -81,76 +83,101 @@ func (m DetailModel) View() string {
 		return "Initializing detail view..."
 	}
 
-	domainLabel := m.hit.Domain
+	// Tab bar.
+	tabBar := renderTabBar(viewDetail, m.width, "")
+
+	// Build the panel title with domain, severity, and score.
+	panelTitle := m.buildPanelTitle()
+
+	// Viewport content inside a titled panel.
+	contentPanel := renderTitledPanel(panelTitle, m.viewport.View(), m.width)
+
+	// Help bar.
+	sep := StyleHelpDesc.Render("  ")
+	helpBar := " " + StyleHelpKey.Render("Esc") + StyleHelpDesc.Render("=back") + sep +
+		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll")
+
+	return lipgloss.JoinVertical(lipgloss.Left, tabBar, contentPanel, helpBar)
+}
+
+// buildPanelTitle constructs the detail panel's title with domain, severity, and score.
+func (m DetailModel) buildPanelTitle() string {
+	var parts []string
+
+	// Bookmark indicator.
 	if m.hit.Bookmarked {
-		domainLabel = StyleBookmarked.Render("*") + " " + domainLabel
+		parts = append(parts, StyleBookmarked.Render("*"))
 	}
-	title := StyleTitle.Render(fmt.Sprintf("Hit Detail: %s", domainLabel))
-	header := StyleHeader.Width(m.width).Render(title)
-	sep := StyleHelpDesc.Render(" | ")
-	help := StyleStatusBar.Width(m.width).Render(
-		" " + StyleHelpKey.Render("Esc") + StyleHelpDesc.Render("=back") + sep +
-			StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll"),
-	)
 
-	panel := StyleBorder.Width(m.width - 2).Render(m.viewport.View())
+	// Domain name colored by severity.
+	sevStyle := SeverityStyle(string(m.hit.Severity))
+	parts = append(parts, sevStyle.Render(m.hit.Domain))
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, panel, help)
+	title := strings.Join(parts, " ")
+
+	// Severity and score in the title.
+	sevTag := sevStyle.Render(string(m.hit.Severity))
+	scoreTag := sevStyle.Render(fmt.Sprintf("Score: %d", m.hit.Score))
+
+	return title + " ── " + sevTag + " ── " + scoreTag
+}
+
+// renderDottedSep renders a dotted separator line at the given width.
+func renderDottedSep(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return StyleDottedSep.Render(strings.Repeat("┄", width))
 }
 
 func (m DetailModel) renderContent() string {
 	var b strings.Builder
-
-	sevStyle := SeverityStyle(string(m.hit.Severity))
-
-	b.WriteString(renderField("Domain", m.hit.Domain))
-	b.WriteString(renderField("Score", sevStyle.Render(fmt.Sprintf("%d", m.hit.Score))))
-	b.WriteString(renderField("Severity", sevStyle.Render(string(m.hit.Severity))))
-
-	// Bookmark indicator.
-	if m.hit.Bookmarked {
-		b.WriteString(renderField("Bookmarked", StyleBookmarked.Render("*")))
+	contentWidth := m.width - 4 // inside panel borders
+	if contentWidth < 20 {
+		contentWidth = 20
 	}
-	b.WriteByte('\n')
+	sepWidth := contentWidth - 2 // a bit of padding
 
+	// Certificate section.
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Certificate") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
 	b.WriteString(renderField("Issuer Org", m.hit.Issuer))
 	b.WriteString(renderField("Issuer CN", m.hit.IssuerCN))
 	if !m.hit.CertNotBefore.IsZero() {
 		b.WriteString(renderField("Cert Not Before", m.hit.CertNotBefore.Format("2006-01-02 15:04:05 UTC")))
 	}
-	b.WriteByte('\n')
 
+	// Scoring section.
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Scoring") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
+	if len(m.hit.Keywords) > 0 {
+		b.WriteString(renderField("Keywords", strings.Join(m.hit.Keywords, ", ")))
+	} else {
+		b.WriteString(renderField("Keywords", "(none)"))
+	}
 	b.WriteString(renderField("CT Log", m.hit.CTLog))
 	b.WriteString(renderField("Profile", m.hit.Profile))
 	b.WriteString(renderField("Session", m.hit.Session))
-	b.WriteByte('\n')
 
-	b.WriteString(StyleTitle.Render("Matched Keywords"))
-	b.WriteByte('\n')
-	if len(m.hit.Keywords) > 0 {
-		for _, kw := range m.hit.Keywords {
-			b.WriteString(fmt.Sprintf("  - %s\n", kw))
-		}
-	} else {
-		b.WriteString("  (none)\n")
-	}
-	b.WriteByte('\n')
-
-	b.WriteString(StyleTitle.Render("Subject Alternative Names"))
-	b.WriteByte('\n')
+	// SANs section.
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("SANs") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
 	if len(m.hit.SANDomains) > 0 {
 		for _, san := range m.hit.SANDomains {
-			b.WriteString(fmt.Sprintf("  - %s\n", san))
+			b.WriteString(fmt.Sprintf("    %s\n", san))
 		}
 	} else {
-		b.WriteString("  (none)\n")
+		b.WriteString("    (none)\n")
 	}
-	b.WriteByte('\n')
 
-	// Enrichment data section — only shown if enrichment has run.
+	// Enrichment data section -- only shown if enrichment has run.
 	if !m.hit.LiveCheckedAt.IsZero() {
-		b.WriteString(StyleTitle.Render("Enrichment Data"))
-		b.WriteByte('\n')
+		b.WriteString("\n")
+		b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Enrichment") + "\n")
+		b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
 
 		liveStr := lipgloss.NewStyle().Foreground(colorHighSeverity).Render("No")
 		if m.hit.IsLive {
@@ -165,7 +192,7 @@ func (m DetailModel) renderContent() string {
 		}
 
 		if m.hit.HostingProvider != "" {
-			b.WriteString(renderField("Hosting Provider", m.hit.HostingProvider))
+			b.WriteString(renderField("Hosting", m.hit.HostingProvider))
 		}
 
 		if m.hit.HTTPStatus > 0 {
@@ -173,9 +200,10 @@ func (m DetailModel) renderContent() string {
 		}
 
 		b.WriteString(renderField("Last Checked", m.hit.LiveCheckedAt.Format("2006-01-02 15:04:05")))
-		b.WriteByte('\n')
 	}
 
+	// Timestamps at the bottom.
+	b.WriteString("\n")
 	if !m.hit.CreatedAt.IsZero() {
 		b.WriteString(renderField("First Seen", m.hit.CreatedAt.Format("2006-01-02 15:04:05")))
 	}

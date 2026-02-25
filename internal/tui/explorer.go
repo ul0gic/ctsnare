@@ -20,6 +20,13 @@ var sortColumns = []string{
 	"severity", "score", "domain", "keywords", "issuer", "session", "created_at",
 }
 
+// deleteStatusMsg provides feedback after a delete operation.
+type deleteStatusMsg struct {
+	Success bool
+	Count   int
+	Err     error
+}
+
 // ExplorerModel displays a filterable, sortable table of stored hits.
 type ExplorerModel struct {
 	table         table.Model
@@ -34,9 +41,11 @@ type ExplorerModel struct {
 	height        int
 	ready         bool
 	selected      map[int]bool
-	keepSelection bool   // preserve selection across the next reload (e.g. sort)
-	confirmAction string // empty, "delete-single", "delete-batch", "clear-all"
-	confirmDomain string // domain for single delete confirmation
+	keepSelection bool            // preserve selection across the next reload (e.g. sort)
+	confirmAction string          // empty, "delete-single", "delete-batch", "clear-all"
+	confirmDomain string          // domain for single delete confirmation
+	deletedSet    map[string]bool // recently deleted domains, filtered from reloads
+	statusText    string          // brief status message shown in filter bar
 }
 
 // NewExplorerModel creates a new DB explorer view.
@@ -72,13 +81,14 @@ func NewExplorerModel(store domain.Store) ExplorerModel {
 	t.SetStyles(s)
 
 	return ExplorerModel{
-		table:    t,
-		hits:     make([]domain.Hit, 0),
-		selected: make(map[int]bool),
-		sortCol:  1,
-		sortDir:  "DESC",
-		store:    store,
-		keys:     DefaultKeyMap(),
+		table:      t,
+		hits:       make([]domain.Hit, 0),
+		selected:   make(map[int]bool),
+		deletedSet: make(map[string]bool),
+		sortCol:    1,
+		sortDir:    "DESC",
+		store:      store,
+		keys:       DefaultKeyMap(),
 		filter: domain.QueryFilter{
 			Limit:   50,
 			SortBy:  "score",
@@ -100,16 +110,26 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		tableHeight := m.height - 4
+		// Layout: tabBar(3) + panel top border(1) + table header+border(2) + panel bottom border(1) + helpBar(1) = 8 lines chrome
+		tableHeight := m.height - 8
 		if tableHeight < 3 {
 			tableHeight = 3
 		}
-		m.table.SetWidth(m.width)
+		// Table width fits inside the panel borders (2 chars for left+right).
+		m.table.SetWidth(m.width - 2)
 		m.table.SetHeight(tableHeight)
 		m.ready = true
 		return m, nil
 
 	case HitsLoadedMsg:
+		// Filter out recently deleted domains so the poller can't re-insert them visually.
+		filtered := make([]domain.Hit, 0, len(msg.Hits))
+		for _, h := range msg.Hits {
+			if !m.deletedSet[h.Domain] {
+				filtered = append(filtered, h)
+			}
+		}
+
 		if m.keepSelection {
 			// Remap selection by domain identity across reloads (e.g. sort change).
 			oldDomains := make(map[string]bool, len(m.selected))
@@ -118,7 +138,7 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 					oldDomains[m.hits[idx].Domain] = true
 				}
 			}
-			m.hits = msg.Hits
+			m.hits = filtered
 			m.selected = make(map[int]bool)
 			for i, h := range m.hits {
 				if oldDomains[h.Domain] {
@@ -127,7 +147,7 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 			}
 			m.keepSelection = false
 		} else {
-			m.hits = msg.Hits
+			m.hits = filtered
 			m.selected = make(map[int]bool)
 		}
 		m.loading = false
@@ -135,10 +155,18 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		return m, nil
 
 	case DeleteHitsMsg:
-		// Hits were deleted — reload.
+		// Hits were deleted -- reload.
 		m.selected = make(map[int]bool)
 		m.loading = true
 		return m, m.loadHitsCmd()
+
+	case deleteStatusMsg:
+		if msg.Success {
+			m.statusText = fmt.Sprintf("Deleted %d hit(s)", msg.Count)
+		} else {
+			m.statusText = fmt.Sprintf("Delete failed: %v", msg.Err)
+		}
+		return m, nil
 
 	case BookmarkToggleMsg:
 		// Update the local hit's bookmark state and refresh the row.
@@ -156,6 +184,9 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		if m.confirmAction != "" {
 			return m.handleConfirm(msg)
 		}
+
+		// Clear status message on any key press.
+		m.statusText = ""
 
 		switch {
 		case msg.String() == "s":
@@ -180,10 +211,13 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 			}
 
 		case msg.String() == "r":
+			// Explicit reload clears the deleted set and status.
+			m.deletedSet = make(map[string]bool)
+			m.statusText = ""
 			m.loading = true
 			return m, m.loadHitsCmd()
 
-		case msg.String() == " ": // space — toggle select
+		case msg.String() == " ": // space -- toggle select
 			row := m.table.Cursor()
 			if row >= 0 && row < len(m.hits) {
 				if m.selected[row] {
@@ -254,10 +288,19 @@ func (m ExplorerModel) handleConfirm(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 
 		switch action {
 		case "delete-single":
+			// Track deleted domain so poller re-inserts don't bring it back.
+			m.deletedSet[domainName] = true
 			return m, m.deleteSingleCmd(domainName)
 		case "delete-batch":
+			for idx := range m.selected {
+				if idx < len(m.hits) {
+					m.deletedSet[m.hits[idx].Domain] = true
+				}
+			}
 			return m, m.deleteBatchCmd()
 		case "clear-all":
+			// Clear all resets everything including the deleted set.
+			m.deletedSet = make(map[string]bool)
 			return m, m.clearAllCmd()
 		}
 
@@ -275,23 +318,79 @@ func (m ExplorerModel) View() string {
 		return "Initializing explorer..."
 	}
 
-	filterBar := m.renderFilterBar()
+	// Tab bar with hit count and clock.
+	tabExtra := StyleHelpDesc.Render(fmt.Sprintf("%d hits", len(m.hits))) + " " + StyleHelpDesc.Render(formatClock())
+	tabBar := renderTabBar(viewExplorer, m.width, tabExtra)
+
+	// Build the panel title from filter/sort/count info.
+	panelTitle := m.buildPanelTitle()
+
+	// Table rendered inside the panel.
 	tableView := m.table.View()
-	helpBar := m.renderHelpBar()
 
-	result := lipgloss.JoinVertical(
-		lipgloss.Left,
-		filterBar,
-		tableView,
-		helpBar,
-	)
+	// Wrap the table in a titled panel.
+	contentPanel := renderTitledPanel(panelTitle, tableView, m.width)
 
-	// Overlay confirmation prompt at the bottom if active.
+	// Help bar or confirmation overlay (confirmation replaces help bar).
+	var bottomBar string
 	if m.confirmAction != "" {
-		result += "\n" + m.renderConfirmPrompt()
+		bottomBar = m.renderConfirmPrompt()
+	} else {
+		bottomBar = m.renderHelpBar()
 	}
 
-	return result
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		tabBar,
+		contentPanel,
+		bottomBar,
+	)
+}
+
+// buildPanelTitle constructs the title string for the explorer panel border.
+func (m ExplorerModel) buildPanelTitle() string {
+	var parts []string
+	if m.filter.Keyword != "" {
+		parts = append(parts, fmt.Sprintf("keyword:%s", m.filter.Keyword))
+	}
+	if m.filter.ScoreMin > 0 {
+		parts = append(parts, fmt.Sprintf("score>=%d", m.filter.ScoreMin))
+	}
+	if m.filter.Severity != "" {
+		parts = append(parts, fmt.Sprintf("severity:%s", m.filter.Severity))
+	}
+	if m.filter.Session != "" {
+		parts = append(parts, fmt.Sprintf("session:%s", m.filter.Session))
+	}
+	if m.filter.Bookmarked {
+		parts = append(parts, "bookmarked:yes")
+	}
+
+	var filterStr string
+	if len(parts) > 0 {
+		filterStr = strings.Join(parts, " | ")
+	} else {
+		filterStr = "no filters"
+	}
+	if m.loading {
+		filterStr = "loading..."
+	}
+
+	sortLabel := fmt.Sprintf("sort:%s %s", explorerColumns[m.sortCol], m.sortDir)
+	hitCount := fmt.Sprintf("%d hits", len(m.hits))
+
+	title := fmt.Sprintf("Filters: %s ── %s ── %s", filterStr, sortLabel, hitCount)
+
+	if len(m.selected) > 0 {
+		title += fmt.Sprintf(" ── %d selected", len(m.selected))
+	}
+
+	// Status text (delete feedback).
+	if m.statusText != "" {
+		title += " ── " + m.statusText
+	}
+
+	return title
 }
 
 // SetFilter updates the active query filter and triggers a reload.
@@ -316,56 +415,11 @@ func (m ExplorerModel) renderConfirmPrompt() string {
 	case "clear-all":
 		prompt = "Clear ALL hits? This cannot be undone. (y/n)"
 	}
-	return StyleStatusBar.Width(m.width).
-		Background(colorHighSeverity).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Render(" " + prompt)
-}
-
-func (m ExplorerModel) renderFilterBar() string {
-	var parts []string
-	if m.filter.Keyword != "" {
-		parts = append(parts, fmt.Sprintf("keyword:%s", m.filter.Keyword))
-	}
-	if m.filter.ScoreMin > 0 {
-		parts = append(parts, fmt.Sprintf("score>=%d", m.filter.ScoreMin))
-	}
-	if m.filter.Severity != "" {
-		parts = append(parts, fmt.Sprintf("severity:%s", m.filter.Severity))
-	}
-	if m.filter.Session != "" {
-		parts = append(parts, fmt.Sprintf("session:%s", m.filter.Session))
-	}
-	if m.filter.Bookmarked {
-		parts = append(parts, "bookmarked:yes")
-	}
-
-	sortLabel := fmt.Sprintf("sort:%s %s", explorerColumns[m.sortCol], m.sortDir)
-	hitCount := fmt.Sprintf("%d hits", len(m.hits))
-	selCount := ""
-	if len(m.selected) > 0 {
-		selCount = fmt.Sprintf(" | %d selected", len(m.selected))
-	}
-
-	var filterStr string
-	if len(parts) > 0 {
-		filterStr = strings.Join(parts, " | ")
-	} else {
-		filterStr = "no filters"
-	}
-
-	if m.loading {
-		filterStr = "loading..."
-	}
-
-	left := StyleHelpDesc.Render(fmt.Sprintf(" Filters: %s", filterStr))
-	right := StyleHelpDesc.Render(fmt.Sprintf("%s%s | %s ", hitCount, selCount, sortLabel))
-	gap := strings.Repeat(" ", max(0, m.width-lipgloss.Width(left)-lipgloss.Width(right)))
-	return StyleHeader.Width(m.width).Render(left + gap + right)
+	return StyleConfirmOverlay.Width(m.width - 2).Render(" " + prompt)
 }
 
 func (m ExplorerModel) renderHelpBar() string {
-	sep := StyleHelpDesc.Render(" | ")
+	sep := StyleHelpDesc.Render("  ")
 	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
 		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + sep +
 		StyleHelpKey.Render("s") + StyleHelpDesc.Render("=sort") + sep +
@@ -374,49 +428,53 @@ func (m ExplorerModel) renderHelpBar() string {
 		StyleHelpKey.Render("Space") + StyleHelpDesc.Render("=select") + sep +
 		StyleHelpKey.Render("d") + StyleHelpDesc.Render("=delete") + sep +
 		StyleHelpKey.Render("Enter") + StyleHelpDesc.Render("=detail")
-	return StyleStatusBar.Width(m.width).Render(" " + help)
+	return " " + help
 }
 
 func (m ExplorerModel) hitsToRows() []table.Row {
 	rows := make([]table.Row, 0, len(m.hits))
 	for i, hit := range m.hits {
-		// Checkbox column.
+		// Checkbox column -- plain text only, no ANSI in cell data.
 		checkbox := "[ ]"
 		if m.selected[i] {
-			checkbox = StyleSelectedCheckbox.Render("[x]")
+			checkbox = "[x]"
 		}
 
 		kw := strings.Join(hit.Keywords, ", ")
 		if len(kw) > 23 {
 			kw = kw[:20] + "..."
 		}
+
+		// Domain -- plain text with prefix/suffix indicators.
 		dom := hit.Domain
-		if len(dom) > 34 {
-			dom = dom[:31] + "..."
-		}
-		// Bookmark star prefix.
+		maxDom := 34
 		if hit.Bookmarked {
-			dom = StyleBookmarked.Render("*") + " " + dom
+			maxDom -= 2 // room for "* " prefix
 		}
-		// Live domain indicator.
 		if hit.IsLive {
-			dom = StyleLiveDomain.Render(dom) + " " + StyleLiveDomain.Render("[L]")
+			maxDom -= 4 // room for " [L]" suffix
 		}
+		if len(dom) > maxDom {
+			dom = dom[:maxDom-3] + "..."
+		}
+		if hit.Bookmarked {
+			dom = "* " + dom
+		}
+		if hit.IsLive {
+			dom = dom + " [L]"
+		}
+
 		issuer := hit.IssuerCN
 		if len(issuer) > 18 {
 			issuer = issuer[:15] + "..."
 		}
 		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
 
-		// Apply severity colors.
-		sevStyle := SeverityStyle(string(hit.Severity))
-		sevCell := sevStyle.Render(string(hit.Severity))
-		scoreCell := sevStyle.Render(fmt.Sprintf("%d", hit.Score))
-
+		// Plain text cells -- no ANSI codes. Table handles alignment.
 		rows = append(rows, table.Row{
 			checkbox,
-			sevCell,
-			scoreCell,
+			string(hit.Severity),
+			fmt.Sprintf("%d", hit.Score),
 			dom,
 			kw,
 			issuer,
@@ -451,7 +509,7 @@ func (m ExplorerModel) deleteSingleCmd(domainName string) tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
 		if err := store.DeleteHit(context.Background(), domainName); err != nil {
-			return nil
+			return deleteStatusMsg{Success: false, Count: 0, Err: err}
 		}
 		return DeleteHitsMsg{Domains: []string{domainName}}
 	}
@@ -473,7 +531,7 @@ func (m ExplorerModel) deleteBatchCmd() tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
 		if err := store.DeleteHits(context.Background(), domains); err != nil {
-			return nil
+			return deleteStatusMsg{Success: false, Count: 0, Err: err}
 		}
 		return DeleteHitsMsg{Domains: domains}
 	}

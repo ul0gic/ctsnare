@@ -87,6 +87,45 @@ var StyleSelectedCheckbox = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(colorLive)
 
+// --- Option B panel styles ---
+
+// colorAppName is used for the "ctsnare" brand name in the tab bar.
+var colorAppName = lipgloss.AdaptiveColor{Light: "#008888", Dark: "#00AAAA"}
+
+// StyleAppName renders the application name in cyan bold.
+var StyleAppName = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(colorAppName)
+
+// StyleTabActive renders the active tab label with inverted colors.
+var StyleTabActive = lipgloss.NewStyle().
+	Bold(true).
+	Background(colorStatusBg).
+	Foreground(colorText).
+	Padding(0, 1)
+
+// StyleTabInactive renders inactive tab labels in muted text.
+var StyleTabInactive = lipgloss.NewStyle().
+	Foreground(colorMuted).
+	Padding(0, 1)
+
+// StylePanel renders a titled panel with a rounded border in subtle gray.
+// Use .Width() to set the panel width before rendering.
+var StylePanel = lipgloss.NewStyle().
+	BorderStyle(lipgloss.RoundedBorder()).
+	BorderForeground(colorSubtle)
+
+// StyleDottedSep renders a dotted separator line for detail view sections.
+var StyleDottedSep = lipgloss.NewStyle().
+	Foreground(colorSubtle)
+
+// StyleConfirmOverlay renders the confirmation prompt with a red background.
+var StyleConfirmOverlay = lipgloss.NewStyle().
+	Bold(true).
+	Background(colorHighSeverity).
+	Foreground(lipgloss.Color("#FFFFFF")).
+	Padding(0, 1)
+
 // SeverityStyle returns the appropriate style for the given severity level.
 func SeverityStyle(severity string) lipgloss.Style {
 	switch severity {

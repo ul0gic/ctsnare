@@ -330,15 +330,9 @@ func TestAppDiscardedDomainMsg_ForwardedToFeed(t *testing.T) {
 	model, _ = app.Update(DiscardedDomainMsg{Domain: "discarded-domain.example.com"})
 	app = model.(AppModel)
 
-	// Feed should have received and processed the discard.
+	// Feed should have incremented the discard count.
 	if app.feed.discardCount != initialDiscardCount+1 {
 		t.Errorf("expected discard count %d, got %d", initialDiscardCount+1, app.feed.discardCount)
-	}
-	if len(app.feed.discards) < 1 {
-		t.Fatal("expected at least 1 discard entry in feed")
-	}
-	if app.feed.discards[0].Domain != "discarded-domain.example.com" {
-		t.Errorf("expected discarded domain discarded-domain.example.com, got %s", app.feed.discards[0].Domain)
 	}
 }
 
