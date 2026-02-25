@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   go: "1.26"
 
@@ -7,8 +9,21 @@ linters:
     - govet
     - staticcheck
     - unused
-    - gosimple
     - ineffassign
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*github.com/ul0gic/ctsnare/internal/storage.DB).Close
+
+formatters:
+  enable:
     - gofmt
     - goimports
 
