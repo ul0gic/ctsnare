@@ -355,7 +355,7 @@ func (m FeedModel) renderSidebarContent() string {
 		if len(keyword) > 14 {
 			keyword = keyword[:11] + "..."
 		}
-		b.WriteString(fmt.Sprintf(" %2d. %-14s %d", i+1, keyword, kw.Count))
+		fmt.Fprintf(&b, " %2d. %-14s %d", i+1, keyword, kw.Count)
 	}
 	return b.String()
 }

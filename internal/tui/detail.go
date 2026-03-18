@@ -197,7 +197,7 @@ func (m DetailModel) renderContent() string {
 	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
 	if len(m.hit.SANDomains) > 0 {
 		for _, san := range m.hit.SANDomains {
-			b.WriteString(fmt.Sprintf("    %s\n", san))
+			fmt.Fprintf(&b, "    %s\n", san)
 		}
 	} else {
 		b.WriteString("    (none)\n")
