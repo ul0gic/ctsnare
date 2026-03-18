@@ -62,7 +62,7 @@ func runQuery(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, 0, 0, 0)
+	config.MergeFlags(cfg, dbPath, 0, 0, 0, 0)
 
 	// Check if the database file exists before attempting to open it.
 	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {

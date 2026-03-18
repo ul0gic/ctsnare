@@ -42,6 +42,7 @@ type Poller struct {
 	statsChan    chan<- PollStats
 	discardChan  chan<- string
 	backtrack    int64
+	minScore     int
 }
 
 // NewPoller creates a poller for a single CT log endpoint. The backtrack
@@ -62,6 +63,7 @@ func NewPoller(
 	statsChan chan<- PollStats,
 	discardChan chan<- string,
 	backtrack int64,
+	minScore int,
 ) *Poller {
 	return &Poller{
 		client:       NewCTLogClient(logURL),
@@ -75,6 +77,7 @@ func NewPoller(
 		statsChan:    statsChan,
 		discardChan:  discardChan,
 		backtrack:    backtrack,
+		minScore:     minScore,
 	}
 }
 
@@ -216,9 +219,14 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 		default:
 		}
 
-		// Only persist MED+ (score >= 4) to the database. LOW-scoring
-		// heuristic-only hits are noise — no keyword matched.
-		if scored.Score < 4 {
+		// Only persist hits meeting the minimum score threshold.
+		// Default (minScore=0) stores all scored hits; use --min-score
+		// to raise the bar and only keep high-confidence results.
+		threshold := p.minScore
+		if threshold == 0 {
+			threshold = 4
+		}
+		if scored.Score < threshold {
 			continue
 		}
 

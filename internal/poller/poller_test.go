@@ -64,7 +64,7 @@ func TestPoller_Backtrack_StartsAtOffset(t *testing.T) {
 		256, 100*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		backtrack,
+		backtrack, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -103,7 +103,7 @@ func TestPoller_Backtrack_Zero_StartsAtTip(t *testing.T) {
 		256, 50*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		0, // no backtrack
+		0, 0, // no backtrack
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -130,7 +130,7 @@ func TestPoller_Backtrack_ExceedsTreeSize_ClampsToZero(t *testing.T) {
 		256, 100*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		backtrack,
+		backtrack, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -161,7 +161,7 @@ func TestNewPoller_BacktrackFieldSet(t *testing.T) {
 		256, time.Second,
 		make(chan<- domain.Hit, 1), make(chan<- PollStats, 1),
 		nil,
-		42,
+		42, 0,
 	)
 	assert.Equal(t, int64(42), p.backtrack)
 }
@@ -173,7 +173,7 @@ func TestNewPoller_BacktrackDefault(t *testing.T) {
 		256, time.Second,
 		make(chan<- domain.Hit, 1), make(chan<- PollStats, 1),
 		nil,
-		0,
+		0, 0,
 	)
 	assert.Equal(t, int64(0), p.backtrack)
 }
@@ -195,7 +195,7 @@ func TestManager_Backtrack_PassedToPollers(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, backtrack)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, backtrack, 0)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)

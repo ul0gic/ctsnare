@@ -27,6 +27,7 @@ var (
 	watchBatchSize    int
 	watchPollInterval time.Duration
 	watchBacktrack    int64
+	watchMinScore     int
 )
 
 var watchCmd = &cobra.Command{
@@ -56,6 +57,7 @@ func init() {
 	watchCmd.Flags().IntVar(&watchBatchSize, "batch-size", 0, "number of CT log entries to fetch per poll (default: 256 from config)")
 	watchCmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0, "wait time between polls per log (default: 5s from config)")
 	watchCmd.Flags().Int64Var(&watchBacktrack, "backtrack", 0, "start N entries behind the current log tip for immediate results (default: 0, start at tip)")
+	watchCmd.Flags().IntVar(&watchMinScore, "min-score", 0, "minimum score to store a hit (default: 0, store all scored hits)")
 
 	rootCmd.AddCommand(watchCmd)
 }
@@ -68,7 +70,7 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	config.MergeFlags(cfg, dbPath, watchBatchSize, watchPollInterval, watchBacktrack)
+	config.MergeFlags(cfg, dbPath, watchBatchSize, watchPollInterval, watchBacktrack, watchMinScore)
 
 	slog.Info("config loaded",
 		"db_path", cfg.DBPath,
@@ -93,14 +95,22 @@ func runWatch(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading profile: %w", err)
 	}
 
-	slog.Info("profile loaded", "name", prof.Name, "keywords", len(prof.Keywords))
+	// Compute the effective skip suffix list by merging hardcoded globals
+	// with user overrides from the config file. This replaces the profile's
+	// default skip suffixes with the merged effective list.
+	prof.SkipSuffixes = config.MergeSkipSuffixes(profile.GlobalSkipSuffixes, cfg.SkipOverrides)
+
+	slog.Info("profile loaded",
+		"name", prof.Name,
+		"keywords", len(prof.Keywords),
+		"effective_skip_suffixes", len(prof.SkipSuffixes))
 
 	// Create channels for hit and stats streaming.
 	hitChan := make(chan domain.Hit, 256)
 	pollerStatsChan := make(chan poller.PollStats, 64)
 
 	// Create poller manager.
-	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack)
+	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack, cfg.MinScore)
 
 	// Discard channel streams zero-scored domain names for TUI activity feed.
 	discardChan := make(chan string, 256)

@@ -16,6 +16,7 @@ type Manager struct {
 	store     domain.Store
 	profile   *domain.Profile
 	backtrack int64
+	minScore  int
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 }
@@ -23,13 +24,14 @@ type Manager struct {
 // NewManager creates a poller manager that will launch one poller per CT log
 // from the config. The backtrack parameter controls how many entries behind
 // the current log tip each poller starts at.
-func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64) *Manager {
+func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64, minScore int) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		scorer:    scorer,
 		store:     store,
 		profile:   profile,
 		backtrack: backtrack,
+		minScore:  minScore,
 	}
 }
 
@@ -54,6 +56,7 @@ func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsCha
 			statsChan,
 			discardChan,
 			m.backtrack,
+			m.minScore,
 		)
 
 		m.wg.Add(1)

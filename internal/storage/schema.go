@@ -57,3 +57,15 @@ const migrationV2IndexSQL = `
 CREATE INDEX IF NOT EXISTS idx_hits_bookmarked ON hits (bookmarked) WHERE bookmarked = 1;
 CREATE INDEX IF NOT EXISTS idx_hits_is_live    ON hits (is_live);
 `
+
+// migrationV3SQL adds the base_domain column for subdomain grouping.
+// The column is added via ALTER TABLE with idempotent handling in runMigrationV3.
+const migrationV3SQL = `
+ALTER TABLE hits ADD COLUMN base_domain TEXT DEFAULT '';
+`
+
+// migrationV3IndexSQL creates an index on the base_domain column for
+// fast grouping queries. IF NOT EXISTS makes this naturally idempotent.
+const migrationV3IndexSQL = `
+CREATE INDEX IF NOT EXISTS idx_hits_base_domain ON hits (base_domain);
+`

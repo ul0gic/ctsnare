@@ -27,6 +27,7 @@ type AppModel struct {
 	detail      *DetailModel
 	filter      *FilterModel
 	keys        KeyMap
+	store       domain.Store
 	width       int
 	height      int
 	hitChan     <-chan domain.Hit
@@ -51,6 +52,7 @@ func NewApp(
 		feed:        NewFeedModel(profile),
 		explorer:    NewExplorerModel(store),
 		keys:        DefaultKeyMap(),
+		store:       store,
 		hitChan:     hitChan,
 		statsChan:   statsChan,
 		enrichChan:  enrichChan,
@@ -215,14 +217,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ShowDetailMsg:
-		d := NewDetailModel(msg.Hit)
+		d := NewDetailModel(msg.Hit, m.store)
 		d.width = m.width
 		d.height = m.height
 		m.detail = &d
 		m.activeView = viewDetail
 		sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
 		*m.detail, _ = m.detail.Update(sizeMsg)
+		// Kick off async subdomain count query.
+		return m, m.detail.Init()
+
+	case SubdomainCountMsg:
+		if m.detail != nil {
+			*m.detail, _ = m.detail.Update(msg)
+		}
 		return m, nil
+
+	case ShowSubdomainsMsg:
+		m.activeView = viewExplorer
+		m.detail = nil
+		cmd := m.explorer.SetFilter(domain.QueryFilter{
+			BaseDomain: msg.BaseDomain,
+			Limit:      500,
+		})
+		return m, cmd
 
 	case SwitchViewMsg:
 		m.activeView = msg.View

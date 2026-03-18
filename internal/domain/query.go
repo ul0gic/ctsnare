@@ -53,6 +53,11 @@ type QueryFilter struct {
 	// LiveOnly filters to only live domains (those that responded to HTTP probe) when true.
 	// False (default) means no liveness filter.
 	LiveOnly bool
+
+	// BaseDomain filters hits whose base_domain column matches this exact value.
+	// Used for subdomain drill-down from the detail view.
+	// Empty string means no base domain filter.
+	BaseDomain string
 }
 
 // DBStats contains aggregate statistics about stored hits.

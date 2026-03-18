@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/ul0gic/ctsnare/internal/config"
 	"github.com/ul0gic/ctsnare/internal/domain"
 	"github.com/ul0gic/ctsnare/internal/storage"
 )
@@ -35,6 +36,7 @@ func resetFlags() {
 	dbClearSession = ""
 	dbExportFormat = "jsonl"
 	dbExportOutput = ""
+	skipResetConfirm = false
 }
 
 // testHits returns a set of known hits for populating a test database.
@@ -349,7 +351,7 @@ func TestProfilesShow(t *testing.T) {
 	})
 
 	assert.Contains(t, output, "Profile: crypto")
-	assert.Contains(t, output, "Keywords (20)")
+	assert.Contains(t, output, "Keywords (45)")
 	assert.Contains(t, output, "bitcoin")
 	assert.Contains(t, output, "Suspicious TLDs")
 	assert.Contains(t, output, ".xyz")
@@ -384,6 +386,7 @@ func TestRootHelpShowsSubcommands(t *testing.T) {
 	assert.Contains(t, output, "query")
 	assert.Contains(t, output, "db")
 	assert.Contains(t, output, "profiles")
+	assert.Contains(t, output, "skip")
 }
 
 // --- Phase 7.3 Integration Tests ---
@@ -623,4 +626,231 @@ func TestDeleteHitsBatch(t *testing.T) {
 	assert.Contains(t, output, "mywalletcrypto.com")
 
 	store.Close()
+}
+
+// --- Phase 8 Skip Suffix Integration Tests ---
+
+func TestSkipList_ShowsGlobals(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "list", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "Global (hardcoded)")
+	assert.Contains(t, output, "cloudflaressl.com")
+	assert.Contains(t, output, "amazonaws.com")
+	assert.Contains(t, output, "effective:")
+}
+
+func TestSkipAdd_ThenList_ShowsUserAddition(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Add a domain.
+	rootCmd.SetArgs([]string{"skip", "add", "example-test.com", "--config", tmpCfg})
+	err := rootCmd.Execute()
+	require.NoError(t, err)
+
+	// List should show it in user additions.
+	resetFlags()
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "list", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "User additions: 1")
+	assert.Contains(t, output, "example-test.com")
+}
+
+func TestSkipAdd_GlobalDomain_PrintsWarning(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Capture stderr for the warning.
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	rootCmd.SetArgs([]string{"skip", "add", "google.com", "--config", tmpCfg})
+	execErr := rootCmd.Execute()
+	assert.NoError(t, execErr)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, readErr := buf.ReadFrom(r)
+	require.NoError(t, readErr)
+	stderr := buf.String()
+
+	assert.Contains(t, stderr, "already in the global skip list")
+}
+
+func TestSkipRemove_UserAddition(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Add, then remove.
+	rootCmd.SetArgs([]string{"skip", "add", "example-test.com", "--config", tmpCfg})
+	require.NoError(t, rootCmd.Execute())
+
+	resetFlags()
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "remove", "example-test.com", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "Removed from user additions")
+
+	// Verify it is gone from list.
+	resetFlags()
+	listOutput := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "list", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.NotContains(t, listOutput, "example-test.com")
+}
+
+func TestSkipRemove_GlobalDomain_AddsToRemovals(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "remove", "google.com", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "Un-skipped global")
+
+	// Verify it shows in removals on list.
+	resetFlags()
+	listOutput := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "list", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, listOutput, "User removals")
+	assert.Contains(t, listOutput, "google.com")
+}
+
+func TestSkipReset_WithConfirm_ClearsOverrides(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Add some overrides first.
+	rootCmd.SetArgs([]string{"skip", "add", "test.com", "--config", tmpCfg})
+	require.NoError(t, rootCmd.Execute())
+
+	resetFlags()
+	rootCmd.SetArgs([]string{"skip", "remove", "google.com", "--config", tmpCfg})
+	require.NoError(t, rootCmd.Execute())
+
+	// Reset with --confirm.
+	resetFlags()
+	output := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"skip", "reset", "--confirm", "--config", tmpCfg})
+		err := rootCmd.Execute()
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, output, "cleared")
+
+	// Verify overrides are gone.
+	overrides, err := config.LoadSkipOverrides(tmpCfg)
+	require.NoError(t, err)
+	assert.Empty(t, overrides.Additions)
+	assert.Empty(t, overrides.Removals)
+}
+
+func TestSkipReset_WithoutConfirm_PrintsWarning(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Add an override first.
+	rootCmd.SetArgs([]string{"skip", "add", "test.com", "--config", tmpCfg})
+	require.NoError(t, rootCmd.Execute())
+
+	// Reset without --confirm -- should print warning to stderr.
+	resetFlags()
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	rootCmd.SetArgs([]string{"skip", "reset", "--config", tmpCfg})
+	_ = rootCmd.Execute()
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, readErr := buf.ReadFrom(r)
+	require.NoError(t, readErr)
+	stderr := buf.String()
+
+	assert.Contains(t, stderr, "--confirm")
+
+	// Verify override was NOT cleared.
+	overrides, loadErr := config.LoadSkipOverrides(tmpCfg)
+	require.NoError(t, loadErr)
+	assert.Equal(t, []string{"test.com"}, overrides.Additions)
+}
+
+func TestSkipAdd_InvalidDomain_NoDot(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Capture stderr.
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	rootCmd.SetArgs([]string{"skip", "add", "nodomain", "--config", tmpCfg})
+	_ = rootCmd.Execute()
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, readErr := buf.ReadFrom(r)
+	require.NoError(t, readErr)
+	stderr := buf.String()
+
+	assert.Contains(t, stderr, "at least one dot")
+}
+
+func TestSkipAdd_InvalidDomain_HasProtocol(t *testing.T) {
+	resetFlags()
+	tmpCfg := filepath.Join(t.TempDir(), "config.toml")
+
+	// Capture stderr.
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	rootCmd.SetArgs([]string{"skip", "add", "https://example.com", "--config", tmpCfg})
+	_ = rootCmd.Execute()
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, readErr := buf.ReadFrom(r)
+	require.NoError(t, readErr)
+	stderr := buf.String()
+
+	assert.Contains(t, stderr, "protocol prefix")
 }

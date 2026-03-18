@@ -55,7 +55,7 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 		"san_domains", "cert_not_before", "ct_log", "profile", "session",
 		"created_at", "updated_at",
 		"is_live", "resolved_ips", "hosting_provider", "http_status",
-		"live_checked_at", "bookmarked",
+		"live_checked_at", "bookmarked", "base_domain",
 	}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("writing CSV header: %w", err)
@@ -95,6 +95,7 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 			strconv.Itoa(hit.HTTPStatus),
 			liveCheckedAt,
 			bookmarked,
+			hit.BaseDomain,
 		}
 		if err := cw.Write(record); err != nil {
 			return fmt.Errorf("writing CSV row: %w", err)

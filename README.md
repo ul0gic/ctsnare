@@ -125,6 +125,7 @@ ctsnare watch [flags]
 | `--batch-size` | `256` | Number of CT log entries to fetch per poll request |
 | `--poll-interval` | `5s` | How long to wait between polls per log (e.g., `1s`, `5s`, `30s`) |
 | `--backtrack` | `0` | Start N entries behind the current log tip for immediate results |
+| `--min-score` | `0` | Minimum score to store a hit (default: store all scored hits) |
 
 Global flags available on all commands:
 
@@ -294,6 +295,56 @@ ctsnare profiles show all
 
 ---
 
+### `ctsnare skip`
+
+Manage the domain skip suffix whitelist. The skip list prevents infrastructure noise (cloud providers, CDNs, big tech) from flooding results.
+
+The system has three layers:
+
+1. **Global (hardcoded)** — Cloud providers, CDNs, PaaS, big tech infra. Always skipped.
+2. **User additions** — Extra domains you want to skip. Persisted to config file.
+3. **User removals** — Globals you want to un-skip (to monitor them specifically).
+
+Effective skip list = globals + additions - removals
+
+#### `ctsnare skip list`
+
+Show the effective skip list with source annotations.
+
+```bash
+ctsnare skip list
+```
+
+#### `ctsnare skip add`
+
+Add domains to the user skip list. Persisted to `~/.config/ctsnare/config.toml`.
+
+```bash
+ctsnare skip add sailpoint.com jpmchase.net
+```
+
+#### `ctsnare skip remove`
+
+Remove a user addition, or un-skip a global to start scoring it again.
+
+```bash
+# Remove a user addition
+ctsnare skip remove sailpoint.com
+
+# Un-skip a global (e.g., to investigate Google infra specifically)
+ctsnare skip remove google.com
+```
+
+#### `ctsnare skip reset`
+
+Clear all user overrides and return to globals only.
+
+```bash
+ctsnare skip reset --confirm
+```
+
+---
+
 ## Configuration
 
 ctsnare works with zero configuration. All defaults are sensible for immediate use.
@@ -331,12 +382,13 @@ backtrack = 0
 # Database path (default: XDG-compliant path)
 # db_path = "/home/user/.local/share/ctsnare/ctsnare.db"
 
-# Domain suffixes to skip during scoring (noisy infrastructure)
-skip_suffixes = [
-  "cloudflaressl.com",
-  "amazonaws.com",
-  "herokuapp.com",
-]
+# User overrides to the skip suffix list
+# Managed via `ctsnare skip add/remove/reset`
+[skip_overrides]
+# Extra domains to skip (on top of built-in globals)
+additions = ["sailpoint.com", "jpmchase.net", "aws.dev"]
+# Built-in domains to un-skip (to monitor them specifically)
+removals = []
 ```
 
 ### Configuration precedence
@@ -352,10 +404,12 @@ CLI flags always win. Zero values in the config file fall back to defaults.
 | Setting | Default |
 |---------|---------|
 | Database path | `~/.local/share/ctsnare/ctsnare.db` (XDG-compliant) |
+| Config path | `~/.config/ctsnare/config.toml` (XDG-compliant) |
 | Default profile | `all` |
 | Batch size | 256 entries per poll |
 | Poll interval | 5 seconds |
 | CT logs | Google Argon 2026h1, Argon 2026h2, Xenon 2026h1 |
+| Skip list | 52 global infrastructure domains (see `ctsnare skip list`) |
 
 ### Custom profiles
 
@@ -386,15 +440,15 @@ ctsnare watch --profile crypto-extended
 
 | Profile | Keywords | Suspicious TLDs | Description |
 |---------|----------|-----------------|-------------|
-| `crypto` | 20 | 10 | Cryptocurrency, casino, and financial scam domains |
-| `phishing` | 18 | 10 | Credential phishing and brand impersonation |
-| `all` | 35+ | 14 | Combined — all keywords and TLDs from crypto + phishing |
+| `crypto` | 45 | 14 | Cryptocurrency scams, underground casinos, and financial fraud |
+| `phishing` | 41 | 15 | Credential phishing and brand impersonation |
+| `all` | 86 | 15 | Combined — all keywords and TLDs from crypto + phishing |
 
-**crypto keywords:** casino, swap, exchange, airdrop, token, wallet, invest, mining, defi, stake, yield, claim, reward, bonus, crypto, bitcoin, ethereum, binance, coinbase, metamask
+**crypto keywords:** bitcoin, ethereum, binance, coinbase, metamask, trustwallet, ledger, trezor, opensea, uniswap, pancakeswap, solana, cardano, blockchain, airdrop, presale, giveaway, rugpull, moonshot, pump-and, freemint, defi, swap, staking, yield-farm, liquidity, flashloan, smartcontract, casino, jackpot, sportsbet, 1xbet, bet365, betway, slots, poker, roulette, blackjack, lottery, gambling, wallet, token, mining, crypto, nft
 
-**phishing keywords:** login, signin, verify, secure, account, update, confirm, banking, paypal, microsoft, apple, google, amazon, netflix, support, helpdesk, password, credential
+**phishing keywords:** paypal, netflix, microsoft, instagram, facebook, whatsapp, telegram, dropbox, docusign, linkedin, snapchat, tiktok, twitter, discord, spotify, chase, wellsfargo, bankofamerica, citibank, hsbc, barclays, santander, capitalone, dhl, fedex, usps, ups-delivery, royalmail, signin, login, verify, password, credential, banking, webscr, authenticate, suspended, unauthorized, security-alert, helpdesk, verification
 
-**Suspicious TLDs:** `.xyz`, `.top`, `.vip`, `.win`, `.bet`, `.casino`, `.click`, `.buzz`, `.icu`, `.monster`, `.info`, `.tk`, `.ml`, `.ga`
+**Suspicious TLDs:** `.xyz`, `.top`, `.vip`, `.win`, `.bet`, `.casino`, `.click`, `.buzz`, `.icu`, `.monster`, `.quest`, `.sbs`, `.cfd`, `.rest`, `.info`, `.tk`, `.ml`, `.ga`, `.cf`
 
 ---
 
@@ -417,9 +471,9 @@ Every domain extracted from a certificate is scored independently. The total sco
 
 | Severity | Score | Meaning |
 |----------|-------|---------|
-| HIGH | >= 6 | Near-certain malicious intent. Multi-keyword hit on a sketchy TLD. |
-| MED | 4-5 | Suspicious. Worth investigating. |
-| LOW | 1-3 | Heuristic-only match. Shown in live feed but not stored. |
+| HIGH | >= 8 | Near-certain malicious intent. Multi-keyword hit on a sketchy TLD. |
+| MED | 5-7 | Suspicious. Worth investigating. |
+| LOW | 1-4 | Single keyword or heuristic-only match. Borderline — may be noise. |
 
 ### What gets stored
 
@@ -439,9 +493,22 @@ Enrichment results appear in the detail view and can be filtered with `--live-on
 
 ### Noise filtering
 
-Infrastructure platforms generate enormous certificate churn. ctsnare skips scoring entirely for domains ending with known infrastructure suffixes: `cloudflaressl.com`, `amazonaws.com`, `herokuapp.com`, `azurewebsites.net`, `googleusercontent.com`, `fastly.net`, `akamaiedge.net`, `cloudfront.net`, `github.io`, `gitlab.io`, `netlify.app`, `vercel.app`, `firebaseapp.com`, `appspot.com`, `trafficmanager.net`, `azure-api.net`.
+Infrastructure platforms generate enormous certificate churn. ctsnare skips scoring entirely for domains ending with known infrastructure suffixes (52 built-in globals covering cloud providers, CDNs, PaaS platforms, and big tech domains).
 
-The skip list is configurable via `skip_suffixes` in the config file.
+The skip list is fully configurable:
+
+```bash
+# See what's being skipped
+ctsnare skip list
+
+# Add a noisy domain you discovered
+ctsnare skip add sailpoint.com
+
+# Un-skip a global to investigate it
+ctsnare skip remove google.com
+```
+
+User overrides are persisted to `~/.config/ctsnare/config.toml`. See [`ctsnare skip`](#ctsnare-skip) for details.
 
 ---
 
@@ -507,7 +574,8 @@ ctsnare/
 ├── cmd/ctsnare/         Entry point
 ├── internal/
 │   ├── domain/          Shared types and interfaces (Hit, Scorer, Store, Profile)
-│   ├── config/          TOML config loading and defaults
+│   ├── domainutil/      Base domain extraction utilities
+│   ├── config/          TOML config loading, skip suffix management
 │   ├── profile/         Keyword profile management and built-in profiles
 │   ├── scoring/         Domain scoring heuristics
 │   ├── storage/         SQLite data layer (upsert, query, export)

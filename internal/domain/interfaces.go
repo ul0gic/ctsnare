@@ -54,6 +54,12 @@ type Store interface {
 	// Serializes resolvedIPs as a JSON array in storage.
 	UpdateEnrichment(ctx context.Context, domain string, isLive bool, resolvedIPs []string, hostingProvider string, httpStatus int) error
 
+	// CountByBaseDomain returns the number of hits sharing the given base domain.
+	CountByBaseDomain(ctx context.Context, baseDomain string) (int, error)
+
+	// QueryHitsByBaseDomain returns all hits whose base_domain matches the given value.
+	QueryHitsByBaseDomain(ctx context.Context, baseDomain string) ([]Hit, error)
+
 	// Close releases the underlying database connection. Must be called when
 	// the store is no longer needed.
 	Close() error

@@ -68,6 +68,14 @@ func (m *mockStore) UpdateEnrichment(_ context.Context, _ string, _ bool, _ []st
 	return nil
 }
 
+func (m *mockStore) CountByBaseDomain(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockStore) QueryHitsByBaseDomain(_ context.Context, _ string) ([]domain.Hit, error) {
+	return nil, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // newMockCTLogServer creates a test HTTP server that responds to CT log API endpoints.
@@ -108,7 +116,7 @@ func TestManager_StartAndStop(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -148,7 +156,7 @@ func TestManager_ContextCancellationStopsAllPollers(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -214,7 +222,7 @@ func TestManager_MultipleLogConfigs(t *testing.T) {
 		PollInterval: 50 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 100)
@@ -244,7 +252,7 @@ func TestManager_EmptyLogConfig(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -275,7 +283,7 @@ func TestManager_StopBeforeStart(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
 
 	// Stop without Start should not panic.
 	done := make(chan struct{})

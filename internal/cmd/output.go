@@ -66,6 +66,7 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 		"severity", "score", "domain", "keywords", "issuer", "issuer_cn",
 		"ct_log", "profile", "session", "timestamp",
 		"is_live", "resolved_ips", "hosting_provider", "http_status", "bookmarked",
+		"base_domain",
 	}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("writing CSV header: %w", err)
@@ -88,6 +89,7 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 			hit.HostingProvider,
 			fmt.Sprintf("%d", hit.HTTPStatus),
 			fmt.Sprintf("%t", hit.Bookmarked),
+			hit.BaseDomain,
 		}
 		if err := cw.Write(row); err != nil {
 			return fmt.Errorf("writing CSV row: %w", err)

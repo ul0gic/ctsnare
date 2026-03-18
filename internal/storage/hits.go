@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/domainutil"
 )
 
 // timestampFormat is the ISO 8601 format used for storing timestamps in SQLite.
@@ -45,11 +46,14 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 		liveCheckedAt = hit.LiveCheckedAt.UTC().Format(timestampFormat)
 	}
 
+	baseDomain := domainutil.BaseDomain(hit.Domain)
+
 	const query = `
 		INSERT INTO hits (domain, score, severity, keywords, issuer, issuer_cn, san_domains,
 			cert_not_before, ct_log, profile, session, created_at, updated_at,
-			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked,
+			base_domain)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(domain) DO UPDATE SET
 			score = excluded.score,
 			severity = excluded.severity,
@@ -61,7 +65,8 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 			ct_log = excluded.ct_log,
 			profile = excluded.profile,
 			session = excluded.session,
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			base_domain = excluded.base_domain
 	`
 
 	_, err = d.db.ExecContext(ctx, query,
@@ -84,6 +89,7 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 		hit.HTTPStatus,
 		liveCheckedAt,
 		bookmarked,
+		baseDomain,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting hit for %s: %w", hit.Domain, err)
@@ -122,11 +128,14 @@ func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
 		liveCheckedAt = hit.LiveCheckedAt.UTC().Format(timestampFormat)
 	}
 
+	baseDomain := domainutil.BaseDomain(hit.Domain)
+
 	const query = `
 		INSERT INTO hits (domain, score, severity, keywords, issuer, issuer_cn, san_domains,
 			cert_not_before, ct_log, profile, session, created_at, updated_at,
-			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked,
+			base_domain)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = d.db.ExecContext(ctx, query,
@@ -149,6 +158,7 @@ func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
 		hit.HTTPStatus,
 		liveCheckedAt,
 		bookmarked,
+		baseDomain,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting hit for %s: %w", hit.Domain, err)
@@ -197,8 +207,12 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	if filter.LiveOnly {
 		where = append(where, "is_live = 1")
 	}
+	if filter.BaseDomain != "" {
+		where = append(where, "base_domain = ?")
+		args = append(args, filter.BaseDomain)
+	}
 
-	query := "SELECT domain, score, severity, keywords, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked FROM hits"
+	query := "SELECT domain, score, severity, keywords, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked, base_domain FROM hits"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -286,6 +300,7 @@ func scanHit(rows interface {
 		&hit.HTTPStatus,
 		&liveCheckedAtStr,
 		&bookmarked,
+		&hit.BaseDomain,
 	)
 	if err != nil {
 		return domain.Hit{}, fmt.Errorf("scanning hit row: %w", err)
@@ -333,6 +348,7 @@ func sanitizeSortColumn(col string) string {
 		"bookmarked":      "bookmarked",
 		"http_status":     "http_status",
 		"live_checked_at": "live_checked_at",
+		"base_domain":     "base_domain",
 	}
 	if safe, ok := allowed[strings.ToLower(col)]; ok {
 		return safe
@@ -391,6 +407,23 @@ func (d *DB) DeleteHits(ctx context.Context, domains []string) error {
 		return fmt.Errorf("committing delete transaction: %w", err)
 	}
 	return nil
+}
+
+// CountByBaseDomain returns the number of hits sharing the given base domain.
+func (d *DB) CountByBaseDomain(ctx context.Context, baseDomain string) (int, error) {
+	var count int
+	err := d.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM hits WHERE base_domain = ?", baseDomain,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting hits for base domain %s: %w", baseDomain, err)
+	}
+	return count, nil
+}
+
+// QueryHitsByBaseDomain returns all hits whose base_domain matches the given value.
+func (d *DB) QueryHitsByBaseDomain(ctx context.Context, baseDomain string) ([]domain.Hit, error) {
+	return d.QueryHits(ctx, domain.QueryFilter{BaseDomain: baseDomain})
 }
 
 // UpdateEnrichment updates the enrichment fields on a hit identified by domain.

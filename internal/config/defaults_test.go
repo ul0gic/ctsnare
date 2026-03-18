@@ -56,12 +56,10 @@ func TestDefaultConfig_DefaultProfile_NonEmpty(t *testing.T) {
 	assert.Equal(t, "all", cfg.DefaultProfile, "default profile should be 'all'")
 }
 
-func TestDefaultConfig_SkipSuffixes_NonEmpty(t *testing.T) {
+func TestDefaultConfig_SkipOverrides_Empty(t *testing.T) {
 	cfg := DefaultConfig()
-	assert.NotEmpty(t, cfg.SkipSuffixes, "skip suffixes must not be empty")
-	for _, suffix := range cfg.SkipSuffixes {
-		assert.NotEmpty(t, suffix, "individual skip suffix must not be empty")
-	}
+	assert.Empty(t, cfg.SkipOverrides.Additions, "default config should have no skip override additions")
+	assert.Empty(t, cfg.SkipOverrides.Removals, "default config should have no skip override removals")
 }
 
 func TestDefaultConfig_CustomProfiles_Initialized(t *testing.T) {
@@ -107,7 +105,8 @@ func TestApplyDefaults_FillsZeroValues(t *testing.T) {
 	assert.NotEmpty(t, cfg.DefaultProfile, "default profile should be filled")
 	assert.NotEmpty(t, cfg.CTLogs, "CT logs should be filled")
 	assert.NotNil(t, cfg.CustomProfiles, "custom profiles should be initialized")
-	assert.NotEmpty(t, cfg.SkipSuffixes, "skip suffixes should be filled")
+	assert.NotNil(t, cfg.SkipOverrides.Additions, "skip overrides additions should be initialized")
+	assert.NotNil(t, cfg.SkipOverrides.Removals, "skip overrides removals should be initialized")
 }
 
 func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
@@ -119,7 +118,10 @@ func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
 		CTLogs: []CTLogConfig{
 			{URL: "https://custom.log/ct", Name: "Custom"},
 		},
-		SkipSuffixes: []string{"custom.com"},
+		SkipOverrides: SkipOverrides{
+			Additions: []string{"custom.com"},
+			Removals:  []string{"google.com"},
+		},
 	}
 	applyDefaults(cfg)
 
@@ -128,20 +130,25 @@ func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
 	assert.Equal(t, "/custom/path.db", cfg.DBPath, "existing db path should be preserved")
 	assert.Equal(t, "crypto", cfg.DefaultProfile, "existing default profile should be preserved")
 	assert.Len(t, cfg.CTLogs, 1, "existing CT logs should be preserved")
-	assert.Equal(t, []string{"custom.com"}, cfg.SkipSuffixes, "existing skip suffixes should be preserved")
+	assert.Equal(t, []string{"custom.com"}, cfg.SkipOverrides.Additions, "existing additions should be preserved")
+	assert.Equal(t, []string{"google.com"}, cfg.SkipOverrides.Removals, "existing removals should be preserved")
 }
 
-func TestDefaultSkipSuffixes_ContainsCommonInfra(t *testing.T) {
-	suffixes := defaultSkipSuffixes()
+func TestDefaultConfigPath_NonEmpty(t *testing.T) {
+	path := DefaultConfigPath()
+	assert.NotEmpty(t, path, "default config path must not be empty")
+	assert.Contains(t, path, "ctsnare", "default config path must contain ctsnare")
+	assert.True(t, filepath.IsAbs(path) || strings.Contains(path, "ctsnare"),
+		"config path should be absolute or contain ctsnare")
+}
 
-	expected := []string{
-		"cloudflaressl.com",
-		"amazonaws.com",
-		"herokuapp.com",
-		"azurewebsites.net",
-	}
+func TestDefaultConfigPath_XDGConfigHome_Set(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	for _, exp := range expected {
-		assert.Contains(t, suffixes, exp, "skip suffixes should contain %q", exp)
-	}
+	path := DefaultConfigPath()
+	assert.True(t, strings.HasPrefix(path, dir),
+		"path %q should start with XDG_CONFIG_HOME %q", path, dir)
+	assert.True(t, strings.HasSuffix(path, "config.toml"),
+		"path %q should end with config.toml", path)
 }

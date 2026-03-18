@@ -1271,3 +1271,181 @@ func TestQueryHits_SortByHTTPStatus(t *testing.T) {
 	assert.Equal(t, 200, hits[1].HTTPStatus)
 	assert.Equal(t, 404, hits[2].HTTPStatus, "http_status=404 should come last in ASC sort")
 }
+
+// --- V3 migration tests: base_domain column ---
+
+func TestMigrationV3_BaseDomainColumnExists(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("sub.example.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	assert.Equal(t, "example.com", hits[0].BaseDomain,
+		"InsertHit should auto-compute base_domain")
+}
+
+func TestMigrationV3_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "v3-idempotent.db")
+
+	db1, err := NewDB(dbPath)
+	require.NoError(t, err)
+	db1.Close()
+
+	// Reopen -- V3 migration runs again, should not error.
+	db2, err := NewDB(dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+}
+
+func TestUpsertHit_SetsBaseDomain(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("evil.netflixconfirmation.net", 6, domain.SeverityHigh)
+	require.NoError(t, db.UpsertHit(ctx, h))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	assert.Equal(t, "netflixconfirmation.net", hits[0].BaseDomain,
+		"UpsertHit should auto-compute base_domain")
+}
+
+func TestUpsertHit_UpdatesBaseDomain(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h := testHit("evil.netflixconfirmation.net", 4, domain.SeverityMed)
+	require.NoError(t, db.UpsertHit(ctx, h))
+
+	// Upsert same domain again -- base_domain should still be correct.
+	h.Score = 8
+	h.Severity = domain.SeverityHigh
+	require.NoError(t, db.UpsertHit(ctx, h))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "netflixconfirmation.net", hits[0].BaseDomain)
+}
+
+func TestCountByBaseDomain(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert several subdomains of the same base domain.
+	domains := []string{
+		"sub1.netflixconfirmation.net",
+		"sub2.netflixconfirmation.net",
+		"sub3.netflixconfirmation.net",
+	}
+	for _, d := range domains {
+		h := testHit(d, 6, domain.SeverityHigh)
+		require.NoError(t, db.InsertHit(ctx, h))
+	}
+
+	// Insert one unrelated domain.
+	h := testHit("other.example.com", 4, domain.SeverityMed)
+	require.NoError(t, db.InsertHit(ctx, h))
+
+	count, err := db.CountByBaseDomain(ctx, "netflixconfirmation.net")
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+
+	count, err = db.CountByBaseDomain(ctx, "example.com")
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	count, err = db.CountByBaseDomain(ctx, "nonexistent.com")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestQueryHitsByBaseDomain(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	domains := []string{
+		"sub1.netflixconfirmation.net",
+		"sub2.netflixconfirmation.net",
+		"different.example.com",
+	}
+	for _, d := range domains {
+		h := testHit(d, 6, domain.SeverityHigh)
+		require.NoError(t, db.InsertHit(ctx, h))
+	}
+
+	hits, err := db.QueryHitsByBaseDomain(ctx, "netflixconfirmation.net")
+	require.NoError(t, err)
+	assert.Len(t, hits, 2, "should return only hits with matching base_domain")
+
+	for _, hit := range hits {
+		assert.Equal(t, "netflixconfirmation.net", hit.BaseDomain)
+	}
+}
+
+func TestQueryHits_BaseDomainFilter(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("a.example.com", 4, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("b.example.com", 6, domain.SeverityHigh)))
+	require.NoError(t, db.InsertHit(ctx, testHit("c.other.net", 2, domain.SeverityLow)))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{BaseDomain: "example.com"})
+	require.NoError(t, err)
+	assert.Len(t, hits, 2)
+
+	for _, hit := range hits {
+		assert.Equal(t, "example.com", hit.BaseDomain)
+	}
+}
+
+func TestBackfillBaseDomain(t *testing.T) {
+	// Simulate a pre-V3 database by manually inserting a row without base_domain,
+	// then calling NewDB again to trigger the backfill.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "backfill-test.db")
+
+	db1, err := NewDB(dbPath)
+	require.NoError(t, err)
+
+	// Insert a hit -- base_domain is auto-computed by InsertHit.
+	ctx := context.Background()
+	h := testHit("sub.backfill-test.com", 4, domain.SeverityMed)
+	require.NoError(t, db1.InsertHit(ctx, h))
+
+	// Manually clear the base_domain to simulate a pre-V3 row.
+	_, err = db1.db.ExecContext(ctx, "UPDATE hits SET base_domain = '' WHERE domain = ?", "sub.backfill-test.com")
+	require.NoError(t, err)
+
+	// Verify it's empty.
+	hits, err := db1.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Empty(t, hits[0].BaseDomain, "base_domain should be empty before backfill")
+	db1.Close()
+
+	// Reopen database -- backfill should run.
+	db2, err := NewDB(dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+
+	hits, err = db2.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "backfill-test.com", hits[0].BaseDomain,
+		"backfill should compute base_domain for legacy rows")
+}
+
+func TestSanitizeSortColumn_BaseDomain(t *testing.T) {
+	result := sanitizeSortColumn("base_domain")
+	assert.Equal(t, "base_domain", result, "base_domain should be an allowed sort column")
+}

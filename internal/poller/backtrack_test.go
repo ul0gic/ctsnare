@@ -30,7 +30,7 @@ func TestBacktrack_TreeSize10000_Backtrack5000(t *testing.T) {
 		256, 100*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		backtrack,
+		backtrack, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -67,7 +67,7 @@ func TestBacktrack_TreeSize10000_BacktrackZero(t *testing.T) {
 		256, 50*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		0,
+		0, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -96,7 +96,7 @@ func TestBacktrack_TreeSize10000_Backtrack20000_ClampsToZero(t *testing.T) {
 		256, 100*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		nil,
-		backtrack,
+		backtrack, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -172,7 +172,7 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 		5000, 50*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 100),
 		nil,
-		5000, // backtrack 5000 from initial tree_size 10000 -> start at 5000
+		5000, 0, // backtrack 5000 from initial tree_size 10000 -> start at 5000
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -248,7 +248,7 @@ func TestBacktrack_DiscardChan_ReceivesZeroScoreDomains(t *testing.T) {
 		256, 100*time.Millisecond,
 		make(chan<- domain.Hit, 10), make(chan<- PollStats, 10),
 		discardChan,
-		1000,
+		1000, 0,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

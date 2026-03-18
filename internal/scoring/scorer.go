@@ -51,12 +51,12 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 }
 
 // classifySeverity maps a numeric score to a severity level.
-// HIGH >= 6, MED 4-5, LOW 1-3, empty string for 0.
+// HIGH >= 8, MED 5-7, LOW 1-4, empty string for 0.
 func classifySeverity(score int) domain.Severity {
 	switch {
-	case score >= 6:
+	case score >= 8:
 		return domain.SeverityHigh
-	case score >= 4:
+	case score >= 5:
 		return domain.SeverityMed
 	case score >= 1:
 		return domain.SeverityLow

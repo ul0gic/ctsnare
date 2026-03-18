@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,23 +13,30 @@ import (
 
 // DetailModel displays the full details of a single hit record.
 type DetailModel struct {
-	hit      domain.Hit
-	viewport viewport.Model
-	width    int
-	height   int
-	ready    bool
+	hit            domain.Hit
+	store          domain.Store
+	viewport       viewport.Model
+	width          int
+	height         int
+	ready          bool
+	subdomainCount int  // number of related subdomains (0 means not loaded yet)
+	countLoaded    bool // true after the async count has been received
 }
 
 // NewDetailModel creates a new detail view for a specific hit.
-func NewDetailModel(hit domain.Hit) DetailModel {
+// The store is used to query related subdomain counts; it may be nil if
+// no store is available (the related subdomains section is simply hidden).
+func NewDetailModel(hit domain.Hit, store domain.Store) DetailModel {
 	return DetailModel{
-		hit: hit,
+		hit:   hit,
+		store: store,
 	}
 }
 
 // Init returns the initial command for the detail model.
+// It kicks off an async query to count related subdomains.
 func (m DetailModel) Init() tea.Cmd {
-	return nil
+	return m.loadSubdomainCountCmd()
 }
 
 // Update handles messages for the detail model.
@@ -59,10 +67,28 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 		m.viewport.SetContent(m.renderContent())
 		return m, nil
 
+	case SubdomainCountMsg:
+		if msg.BaseDomain == m.hit.BaseDomain {
+			m.subdomainCount = msg.Count
+			m.countLoaded = true
+			if m.ready {
+				m.viewport.SetContent(m.renderContent())
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if msg.String() == "esc" || msg.String() == "q" {
 			return m, func() tea.Msg {
 				return SwitchViewMsg{View: 1}
+			}
+		}
+		// Enter drills down to the subdomain list if count > 1.
+		if msg.String() == "enter" && m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
+			baseDomain := m.hit.BaseDomain
+			fromDomain := m.hit.Domain
+			return m, func() tea.Msg {
+				return ShowSubdomainsMsg{BaseDomain: baseDomain, FromDomain: fromDomain}
 			}
 		}
 		if m.ready {
@@ -96,6 +122,10 @@ func (m DetailModel) View() string {
 	sep := StyleHelpDesc.Render("  ")
 	helpBar := " " + StyleHelpKey.Render("Esc") + StyleHelpDesc.Render("=back") + sep +
 		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll")
+
+	if m.countLoaded && m.subdomainCount > 1 {
+		helpBar += sep + StyleHelpKey.Render("Enter") + StyleHelpDesc.Render("=subdomains")
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, contentPanel, helpBar)
 }
@@ -202,6 +232,16 @@ func (m DetailModel) renderContent() string {
 		b.WriteString(renderField("Last Checked", m.hit.LiveCheckedAt.Format("2006-01-02 15:04:05")))
 	}
 
+	// Related Subdomains section -- only shown when count > 1.
+	if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
+		b.WriteString("\n")
+		b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Related Subdomains") + "\n")
+		b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
+		b.WriteString(renderField("Base Domain", m.hit.BaseDomain))
+		countStr := fmt.Sprintf("%d (Enter to view)", m.subdomainCount)
+		b.WriteString(renderField("Subdomains", countStr))
+	}
+
 	// Timestamps at the bottom.
 	b.WriteString("\n")
 	if !m.hit.CreatedAt.IsZero() {
@@ -222,4 +262,23 @@ func renderField(label, value string) string {
 		StyleHelpKey.Width(16).Render(label+":"),
 		value,
 	)
+}
+
+// loadSubdomainCountCmd returns a tea.Cmd that asynchronously queries the
+// store for the number of hits sharing this hit's base domain.
+func (m DetailModel) loadSubdomainCountCmd() tea.Cmd {
+	if m.store == nil || m.hit.BaseDomain == "" {
+		return func() tea.Msg {
+			return SubdomainCountMsg{BaseDomain: m.hit.BaseDomain, Count: 0}
+		}
+	}
+	store := m.store
+	baseDomain := m.hit.BaseDomain
+	return func() tea.Msg {
+		count, err := store.CountByBaseDomain(context.Background(), baseDomain)
+		if err != nil {
+			return SubdomainCountMsg{BaseDomain: baseDomain, Count: 0}
+		}
+		return SubdomainCountMsg{BaseDomain: baseDomain, Count: count}
+	}
 }

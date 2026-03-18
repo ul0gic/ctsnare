@@ -61,7 +61,13 @@ func (m *mockStore) ClearSession(context.Context, string) error      { return ni
 func (m *mockStore) SetBookmark(context.Context, string, bool) error { return nil }
 func (m *mockStore) DeleteHit(context.Context, string) error         { return nil }
 func (m *mockStore) DeleteHits(context.Context, []string) error      { return nil }
-func (m *mockStore) Close() error                                    { return nil }
+func (m *mockStore) CountByBaseDomain(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) QueryHitsByBaseDomain(context.Context, string) ([]domain.Hit, error) {
+	return nil, nil
+}
+func (m *mockStore) Close() error { return nil }
 
 func TestEnricher_LiveDomain(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

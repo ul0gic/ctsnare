@@ -86,6 +86,12 @@ type Hit struct {
 	// Bookmarked indicates the user has flagged this hit as interesting.
 	// False by default.
 	Bookmarked bool
+
+	// BaseDomain is the registrable base domain extracted from Domain.
+	// Used for grouping subdomains that belong to the same campaign.
+	// Computed automatically on insert/upsert; empty for legacy rows
+	// until the V3 migration backfill runs.
+	BaseDomain string
 }
 
 // CTLogEntry represents a raw entry from a Certificate Transparency log before scoring.

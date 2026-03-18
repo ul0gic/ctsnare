@@ -71,3 +71,17 @@ type DeleteHitsMsg struct {
 type DiscardedDomainMsg struct {
 	Domain string
 }
+
+// SubdomainCountMsg delivers the async count of related subdomains for the
+// detail view.
+type SubdomainCountMsg struct {
+	BaseDomain string
+	Count      int
+}
+
+// ShowSubdomainsMsg requests switching the explorer to show all hits sharing
+// a specific base domain, with the originating hit's domain for back-navigation.
+type ShowSubdomainsMsg struct {
+	BaseDomain string
+	FromDomain string
+}

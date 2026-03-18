@@ -365,6 +365,9 @@ func (m ExplorerModel) buildPanelTitle() string {
 	if m.filter.Bookmarked {
 		parts = append(parts, "bookmarked:yes")
 	}
+	if m.filter.BaseDomain != "" {
+		parts = append(parts, fmt.Sprintf("base:%s", m.filter.BaseDomain))
+	}
 
 	var filterStr string
 	if len(parts) > 0 {
@@ -470,12 +473,22 @@ func (m ExplorerModel) hitsToRows() []table.Row {
 		}
 		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
 
-		// Plain text cells -- no ANSI codes. Table handles alignment.
+		// Color cells by severity.
+		sevStyle := SeverityStyle(string(hit.Severity))
+		sevText := sevStyle.Render(string(hit.Severity))
+		scoreText := sevStyle.Render(fmt.Sprintf("%d", hit.Score))
+
+		// Domain colored by severity, or green if live.
+		domText := sevStyle.Render(dom)
+		if hit.IsLive {
+			domText = StyleLiveDomain.Render(dom)
+		}
+
 		rows = append(rows, table.Row{
 			checkbox,
-			string(hit.Severity),
-			fmt.Sprintf("%d", hit.Score),
-			dom,
+			sevText,
+			scoreText,
+			domText,
 			kw,
 			issuer,
 			hit.Session,
