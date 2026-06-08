@@ -15,7 +15,7 @@ ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scor
 ## Features
 
 - **Real-time CT log polling** — Direct RFC 6962 HTTP polling of Google Argon, Xenon, and other CT logs. No WebSocket relays, no accounts, no API keys.
-- **Scoring engine** — Six heuristics score each domain: keyword density, suspicious TLD, domain length, hyphen count, digit sequences, and multi-keyword bonus. Only MED+ (score >= 4) hits are persisted — LOW-scored heuristic noise stays out of your database.
+- **Scoring engine** — Six heuristics score each domain: keyword density, suspicious TLD, domain length, hyphen count, digit sequences, and multi-keyword bonus. By default only hits scoring 4 or higher are persisted (LOW 4 through HIGH) — score-0 noise and sub-threshold churn stay out of your database. Tune the cutoff with `--score-min`.
 - **Enrichment pipeline** — Automatic DNS resolution, CIDR-based hosting provider detection, and HTTP HEAD liveness probes for every stored hit. See which domains are actually live.
 - **Keyword profiles** — Built-in profiles for crypto scams and phishing. Define your own in TOML with keyword lists and TLD boost sets.
 - **Persistent SQLite storage** — Actionable hits stored in WAL-mode SQLite. Crashes don't lose data. Deduplication by domain.
@@ -30,7 +30,7 @@ ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scor
 ### go install (recommended)
 
 ```bash
-go install github.com/ul0gic/ctsnare@latest
+go install github.com/ul0gic/ctsnare/cmd/ctsnare@latest
 ```
 
 ### Download binary
@@ -64,7 +64,7 @@ Start monitoring:
 ctsnare watch
 ```
 
-This opens the TUI dashboard, begins polling Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing keywords), and stores every MED+ scored hit in `~/.local/share/ctsnare/ctsnare.db`.
+This opens the TUI dashboard, begins polling Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing keywords), and stores every hit scoring 4 or higher in `~/.local/share/ctsnare/ctsnare.db`.
 
 Press `Tab` to switch between the Live Feed and the DB Explorer. Press `p` to pause/resume the feed. Press `q` to quit.
 
@@ -477,9 +477,11 @@ Every domain extracted from a certificate is scored independently. The total sco
 
 ### What gets stored
 
-Only MED and HIGH hits (score >= 4) are persisted to the database. These are domains that matched at least one keyword from your profile. LOW-scoring heuristic-only hits (long domains, lots of hyphens, etc.) appear in the live feed for visibility but are not stored — they're noise.
+By default, hits scoring 4 or higher are persisted to the database — that spans the upper half of LOW (4) through MED and HIGH. Hits scoring 1–3 appear in the live feed for visibility but are not stored. Adjust the cutoff with `--score-min`.
 
-A score of 0 (no keywords matched, or domain matches a skip suffix) is discarded entirely.
+A score of 0 (no heuristic fired, or the domain matches a skip suffix) is discarded entirely.
+
+Note: a score of 4 can be reached without any keyword match (e.g. suspicious TLD + length + hyphen + digit-run), so the stored set is "score >= 4," not "keyword matches only."
 
 ### Enrichment
 
@@ -530,8 +532,8 @@ flowchart TD
         D["Six Heuristics\nkeyword match · suspicious TLD\ndomain length · hyphen density\ndigit sequences · multi-keyword bonus"] --> E{"Score >= 4?"}
     end
 
-    E -->|"LOW / zero"| F["Live Feed Only\n(not stored)"]
-    E -->|"MED / HIGH"| G["Severity Classification\nHIGH >= 6 · MED 4-5"]
+    E -->|"score 1-3 / zero"| F["Live Feed Only\n(not stored)"]
+    E -->|"score >= 4"| G["Severity Classification\nHIGH >= 8 · MED 5-7 · LOW 1-4"]
 
     G --> H["SQLite Database\n(internal/storage)\nWAL mode · busy_timeout\nupsert dedup by domain"]
     G -->|"buffered channel"| I["Enrichment Pipeline\nDNS · hosting provider\nHTTP liveness probe"]
@@ -555,7 +557,7 @@ flowchart TD
 
 **Decoupled polling and display.** Pollers are goroutines that push scored hits through buffered channels. The TUI subscribes to these channels — it never controls or blocks the pollers. Switching views, opening the filter overlay, or drilling into a record has zero effect on polling throughput.
 
-**MED+ storage threshold.** Only hits that matched at least one keyword (score >= 4) are persisted. This keeps the database focused on actionable intelligence while the live feed shows all activity for situational awareness.
+**Score-based storage threshold.** By default only hits scoring 4 or higher (`--score-min`, default 4) are persisted, spanning the upper half of LOW through HIGH. This keeps the database focused on actionable intelligence while the live feed shows all activity for situational awareness.
 
 **Background enrichment.** A rate-limited worker pool (5 workers) probes each stored domain for DNS records, hosting provider, and HTTP liveness. Results are persisted and streamed to the TUI in real-time.
 

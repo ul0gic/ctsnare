@@ -3,18 +3,18 @@ package domain
 import "time"
 
 // Severity represents the threat level of a scored domain.
-// The three levels map to score thresholds: HIGH >= 6, MED 4-5, LOW 1-3.
+// The three levels map to score thresholds: HIGH >= 8, MED 5-7, LOW 1-4.
 type Severity string
 
 const (
-	// SeverityHigh indicates a score of 6 or above — near-certain malicious intent.
+	// SeverityHigh indicates a score of 8 or above — near-certain malicious intent.
 	// Typically a multi-keyword hit on a suspicious TLD.
 	SeverityHigh Severity = "HIGH"
 
-	// SeverityMed indicates a score of 4 or 5 — suspicious, worth investigating.
+	// SeverityMed indicates a score of 5 to 7 — suspicious, worth investigating.
 	SeverityMed Severity = "MED"
 
-	// SeverityLow indicates a score of 1 to 3 — single keyword match, noise-prone.
+	// SeverityLow indicates a score of 1 to 4 — single keyword match, noise-prone.
 	SeverityLow Severity = "LOW"
 )
 

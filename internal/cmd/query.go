@@ -43,7 +43,7 @@ Examples:
 
 func init() {
 	queryCmd.Flags().StringVar(&queryKeyword, "keyword", "", "filter by keyword substring match against matched keywords")
-	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score (HIGH=6+, MED=4-5, LOW=1-3)")
+	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score (HIGH=8+, MED=5-7, LOW=1-4)")
 	queryCmd.Flags().DurationVar(&querySince, "since", 0, `only show hits from within this duration (e.g., "1h", "24h", "7d")`)
 	queryCmd.Flags().StringVar(&queryTLD, "tld", "", `filter by TLD suffix (e.g., ".xyz" or "xyz")`)
 	queryCmd.Flags().StringVar(&querySession, "session", "", "filter by session tag set with 'ctsnare watch --session'")
