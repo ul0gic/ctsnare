@@ -1,0 +1,14 @@
+{
+  "name": "punycode_idn",
+  "description": "IDN/punycode (xn--) labels — confirms no mangling of internationalized domains",
+  "source_log": "https://ct.googleapis.com/logs/us1/argon2026h2",
+  "index": 1439500020,
+  "captured_at": "2026-06-08",
+  "entry_type": 0,
+  "leaf_input_b64": "AAAAAAGeqQqrGQAAAAOYMIIDlDCCAxugAwIBAgISBXias8w8UyODOxl+Kq5leLYFMAoGCCqGSM49BAMDMDMxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZRTIwHhcNMjYwNjA4MjAwMzE4WhcNMjYwOTA2MjAwMzE3WjAXMRUwEwYDVQQDEwx4bi0tbC0yZmEuZGswWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATWMJVwgTfFtpWCa5CtKQ0HeYfpWlWr0NsP/yJhYKBfEx0KeyKzSt1/WYYBNqqaXnbt/577xI22NtePf6dbMCyjo4ICKTCCAiUwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYEFA/IAEf8T+k4sPeqpwfiH1imRYOBMB8GA1UdIwQYMBaAFLlZ8o7PIvCG0zdI/3YUGLqC2FWHMDMGCCsGAQUFBwEBBCcwJTAjBggrBgEFBQcwAoYXaHR0cDovL3llMi5pLmxlbmNyLm9yZy8wJwYDVR0RBCAwHoIOKi54bi0tbC0yZmEuZGuCDHhuLS1sLTJmYS5kazATBgNVHSAEDDAKMAgGBmeBDAECATAtBgNVHR8EJjAkMCKgIKAehhxodHRwOi8veWUyLmMubGVuY3Iub3JnLzYuY3JsMIIBDAYKKwYBBAHWeQIEAgSB/QSB+gD4AHYAwjF+V0UZo0XufzjespBB68fCIVoiv3/Vta12mtkOUs0AAAGeqQqm2wAABAMARzBFAiEAjvPX76o3gtxaLCncO2Ld90Dx6x5wyowcBh03lkAWYJsCIGhscuAjSPrvteOFvSXfei/4ARTzBXHvXqSgTFBLir3CAH4AGoudaw/+v4G0eTnG0jEKhtbRAtTwRuIYLJ3jX14mJe8AAAGeqQqpHQAIAAAFABxENEsEAwBHMEUCIQDYqxe6zUPo4w8JcF6TbB3WrSew/fUb2/31wbsgMgZdHAIgHvFTvijzvZ+kksGwj3RTyVxgTHnEPVzMTQQbTZdBMl4wCgYIKoZIzj0EAwMDZwAwZAIwPkIVyP+LAh4FH/cQJom1sbDxmzmWMGjcHKaPkMlu/1f6dBcu+/7ujyvaYHkU/hMyAjAyBHRGQA3JsWTzM0R6v2luP4dQpiz2J74o6j66B0maxSpD2hur24TWgypZlmZsvnoAAA==",
+  "expected_domains": [
+    "xn--l-2fa.dk",
+    "*.xn--l-2fa.dk"
+  ],
+  "expected_sig_alg": "ECDSAWithSHA384"
+}

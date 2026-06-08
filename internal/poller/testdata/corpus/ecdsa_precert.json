@@ -1,0 +1,14 @@
+{
+  "name": "ecdsa_precert",
+  "description": "ECDSA-signed precertificate (entry_type=1) — the dominant modern case and the class ISSUE-004 missed",
+  "source_log": "https://ct.googleapis.com/logs/us1/argon2026h1",
+  "index": 2792900002,
+  "captured_at": "2026-06-08",
+  "entry_type": 1,
+  "leaf_input_b64": "AAAAAAGeqJdVoQABRM3y5tcn1oEOdEd+IzeZYwxr+FiMF6DAbydz8US9IHAAAyYwggMioAMCAQICEAOcuELZXfAu2ImbnR9+bZ0wCgYIKoZIzj0EAwMwPTELMAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEdMBsGA1UEAxMUQW1hem9uIEVDRFNBIDM4NCBNMDEwHhcNMjYwNjA4MDAwMDAwWhcNMjYwNjIzMjM1OTU5WjBLMUkwRwYDVQQDE0BiY2M2ZTQxYjYzYzE3ODA5NDQ0Mjc2NDguemF6LnByb2QuY2FuYXJpZXMucXVpY2tiZWFtLmFjbS5hd3MuZGV2MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEg8ZtePL2448cH1f2cq3GuWnt735rhoVdSJMtpmCiXjqLwJOFRPgxy84z+kJEYjWBucK5gwRjNsWGlLAwKvJEghaMJrGXvBBJ5QjzOD+2pbMQVZeb3fJPd85ITYNOGP1wo4IB1zCCAdMwHwYDVR0jBBgwFoAUA+SkBI4Ff5oSl4QE/xF3MIy6KqcwHQYDVR0OBBYEFF7BQoQYYgsFPXruedjKB40XjDjrMIGUBgNVHREEgYwwgYmCQGJjYzZlNDFiNjNjMTc4MDk0NDQyNzY0OC56YXoucHJvZC5jYW5hcmllcy5xdWlja2JlYW0uYWNtLmF3cy5kZXaCRXNhbjAuYmNjNmU0MWI2M2MxNzgwOTQ0NDI3NjQ4Lnphei5wcm9kLmNhbmFyaWVzLnF1aWNrYmVhbS5hY20uYXdzLmRldjATBgNVHSAEDDAKMAgGBmeBDAECATAOBgNVHQ8BAf8EBAMCA4gwEwYDVR0lBAwwCgYIKwYBBQUHAwEwOwYDVR0fBDQwMjAwoC6gLIYqaHR0cDovL2NybC5lM20wMS5hbWF6b250cnVzdC5jb20vZTNtMDEuY3JsMHUGCCsGAQUFBwEBBGkwZzAtBggrBgEFBQcwAYYhaHR0cDovL29jc3AuZTNtMDEuYW1hem9udHJ1c3QuY29tMDYGCCsGAQUFBzAChipodHRwOi8vY3J0LmUzbTAxLmFtYXpvbnRydXN0LmNvbS9lM20wMS5jZXIwDAYDVR0TAQH/BAIwAAAA",
+  "expected_domains": [
+    "bcc6e41b63c1780944427648.zaz.prod.canaries.quickbeam.acm.aws.dev",
+    "san0.bcc6e41b63c1780944427648.zaz.prod.canaries.quickbeam.acm.aws.dev"
+  ],
+  "expected_sig_alg": "ECDSAWithSHA384"
+}

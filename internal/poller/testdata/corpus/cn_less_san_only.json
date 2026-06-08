@@ -1,0 +1,13 @@
+{
+  "name": "cn_less_san_only",
+  "description": "Empty Subject CN, SAN-only certificate — very common; exercises the CN-skip path in uniqueDomains",
+  "source_log": "https://ct.googleapis.com/logs/us1/argon2026h1",
+  "index": 2792900018,
+  "captured_at": "2026-06-08",
+  "entry_type": 1,
+  "leaf_input_b64": "AAAAAAGeqJdmcQABOdSlmQD9NWJh4EbcOHBxkhygPwNSwA9Q91eounfbcoEAAl8wggJboAMCAQICEGQzXnKyrNBXEokF+b25XaQwDQYJKoZIhvcNAQELBQAwOzELMAkGA1UEBhMCVVMxHjAcBgNVBAoTFUdvb2dsZSBUcnVzdCBTZXJ2aWNlczEMMAoGA1UEAxMDV1IzMB4XDTI2MDYwODE3NTM0N1oXDTI2MDYwOTE3NTM0NlowADBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFikHr3nckIQia82GtacwQareDqdCxgOWd5BGiQV4Xh87rqP7PeGgVtWQ2/Vh42bVBtCOjEqAU0Fp0YmXMB1EAGjggF3MIIBczAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwDAYDVR0TAQH/BAIwADAdBgNVHQ4EFgQUvdPFx9hvo+m39BQ9Yq+63sYEi1wwHwYDVR0jBBgwFoAUx4H1/Y6I2QA8TWOiUDEkoM4j/iMwXgYIKwYBBQUHAQEEUjBQMCcGCCsGAQUFBzABhhtodHRwOi8vby5wa2kuZ29vZy9zL3dyMy9aRE0wJQYIKwYBBQUHMAKGGWh0dHA6Ly9pLnBraS5nb29nL3dyMy5jcnQwUQYDVR0RAQH/BEcwRYJDMTc4MDk0NDgyNzE5ODIwNTAyMy0xYzJ0endiMzJzd3ZmLmRucy0wMS5wcm9kdWN0aW9uLmhhcGxvcnJoaW5pLmNvbTATBgNVHSAEDDAKMAgGBmeBDAECATA2BgNVHR8ELzAtMCugKaAnhiVodHRwOi8vYy5wa2kuZ29vZy93cjMvRXBSdVIzUm9CbkkuY3JsAAA=",
+  "expected_domains": [
+    "1780944827198205023-1c2tzwb32swvf.dns-01.production.haplorrhini.com"
+  ],
+  "expected_sig_alg": "SHA256WithRSA"
+}

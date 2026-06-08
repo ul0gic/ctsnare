@@ -1,0 +1,14 @@
+{
+  "name": "rsa_precert",
+  "description": "RSA-signed precertificate (entry_type=1) — proves alg-agnostic wrapping",
+  "source_log": "https://ct.googleapis.com/logs/us1/argon2026h1",
+  "index": 2792900000,
+  "captured_at": "2026-06-08",
+  "entry_type": 1,
+  "leaf_input_b64": "AAAAAAGeqJeC9gABG9LNNAql897egYsabashkzUCTEJkWBzgoEtk8X/678cAA9EwggPNoAMCAQICEA3TlsGwObLwFc0vaFFJqQEwDQYJKoZIhvcNAQELBQAwPDELMAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEcMBoGA1UEAxMTQW1hem9uIFJTQSAyMDQ4IE0wNDAeFw0yNjA2MDgwMDAwMDBaFw0yNjA2MDgyMzU5NTlaMD0xOzA5BgNVBAMTMmNhbmFyeS5jbi1ub3J0aHdlc3QtMS5vcHMucHJvZC5hdXJhLmFjbS5hMnoub3JnLmNuMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7j2RrPH281esfE6X97Ok9uBlab0WjAvA/5uDrSe3rToLVszzzjEqBnp7drCtJULzrne4dREAFwLU7h8NH8SMGDnWJ3wHLYeT1+dAMwbYbhCPvC6H6CUKVwhfzrgCKVOkOH+tFYrFaOogu32dP50/QRexenvRSdrAG+EVKDIR9bAdR1zh7oCnTvdiiBPBIJ6vAClQsOYgvK4WAZzg5axEN9xqP6eL3I4drL9+1MCsNChg0vztNZck49jy7senQI0rYJ/1CUxZYT5w0+5IunV7py5haofxrC9YjWT+AFUZtI8tKrso8XyY+xP+v1kDeKFE4Wmox8fa/PNGZwlw5ur+QIDAQABo4IB4DCCAdwwHwYDVR0jBBgwFoAUH1KSYVaCVH+BZtgdPQqqMlyH3QgwHQYDVR0OBBYEFFcSzj0nU5Px6L26h+wNQhY5AHToMIGdBgNVHREEgZUwgZKCMmNhbmFyeS5jbi1ub3J0aHdlc3QtMS5vcHMucHJvZC5hdXJhLmFjbS5hMnoub3JnLmNuglwwYzZhZGM2Ni0yZGZkLTQwNmEtOTIzYy03MDhmZTdmN2QwOTQuYW1kdi5jYW5hcnkuY24tbm9ydGh3ZXN0LTEub3BzLnByb2QuYXVyYS5hY20uYTJ6Lm9yZy5jbjATBgNVHSAEDDAKMAgGBmeBDAECATAOBgNVHQ8BAf8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwOwYDVR0fBDQwMjAwoC6gLIYqaHR0cDovL2NybC5yMm0wNC5hbWF6b250cnVzdC5jb20vcjJtMDQuY3JsMHUGCCsGAQUFBwEBBGkwZzAtBggrBgEFBQcwAYYhaHR0cDovL29jc3AucjJtMDQuYW1hem9udHJ1c3QuY29tMDYGCCsGAQUFBzAChipodHRwOi8vY3J0LnIybTA0LmFtYXpvbnRydXN0LmNvbS9yMm0wNC5jZXIwDAYDVR0TAQH/BAIwAAAA",
+  "expected_domains": [
+    "canary.cn-northwest-1.ops.prod.aura.acm.a2z.org.cn",
+    "0c6adc66-2dfd-406a-923c-708fe7f7d094.amdv.canary.cn-northwest-1.ops.prod.aura.acm.a2z.org.cn"
+  ],
+  "expected_sig_alg": "SHA256WithRSA"
+}
