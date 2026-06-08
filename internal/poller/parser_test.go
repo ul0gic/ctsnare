@@ -60,6 +60,68 @@ func generateTestCert(t *testing.T, cn string, dnsNames []string) []byte {
 	return der
 }
 
+// buildPrecertLeafInput constructs a valid MerkleTreeLeaf wrapping a bare
+// TBSCertificate as a precert_entry (entry_type=1). The PreCert body is:
+// issuer_key_hash (32 bytes) + TBSCertificate opaque<1..2^24-1>.
+func buildPrecertLeafInput(tbsDER []byte) []byte {
+	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2)
+	header := make([]byte, 12)
+	header[0] = 0 // version v1
+	header[1] = 0 // timestamped_entry
+	binary.BigEndian.PutUint64(header[2:10], uint64(time.Now().UnixMilli()))
+	binary.BigEndian.PutUint16(header[10:12], 1) // precert_entry
+
+	// issuer_key_hash: 32 bytes (content is irrelevant to domain extraction).
+	issuerKeyHash := make([]byte, 32)
+
+	// TBSCertificate opaque<1..2^24-1>: 3-byte length prefix + TBS DER.
+	tbsLen := len(tbsDER)
+	lenPrefix := []byte{
+		byte(tbsLen >> 16),
+		byte(tbsLen >> 8),
+		byte(tbsLen),
+	}
+
+	leaf := append(header, issuerKeyHash...)
+	leaf = append(leaf, lenPrefix...)
+	leaf = append(leaf, tbsDER...)
+	return leaf
+}
+
+// generateTestTBS creates an ECDSA P-256 certificate and returns its
+// RawTBSCertificate — the exact bytes a precert leaf carries.
+func generateTestTBS(t *testing.T, cn string, dnsNames []string) []byte {
+	t.Helper()
+	der := generateTestCert(t, cn, dnsNames)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert.RawTBSCertificate
+}
+
+func TestParseCertDomains_ECDSAPrecertExtractsDomains(t *testing.T) {
+	// Regression for ISSUE-004: precert (entry_type=1) leaves carrying an
+	// ECDSA-signed TBSCertificate must parse. The previous wrapper hardcoded a
+	// SHA256WithRSA outer algorithm, which failed x509's inner==outer check for
+	// the ECDSA precerts that dominate modern CT logs.
+	tbs := generateTestTBS(t, "evil-phish.com", []string{"evil-phish.com", "login.evil-phish.com"})
+	leafInput := buildPrecertLeafInput(tbs)
+
+	entry := domain.CTLogEntry{
+		LeafInput: leafInput,
+		LogURL:    "https://ct.example.com/log",
+		Index:     7,
+	}
+
+	domains, cert, err := ParseCertDomains(entry)
+	require.NoError(t, err, "ECDSA precert must parse without error")
+	require.NotNil(t, cert)
+
+	assert.Equal(t, x509.ECDSAWithSHA256, cert.SignatureAlgorithm,
+		"reconstructed cert should report the real ECDSA signature algorithm")
+	assert.Contains(t, domains, "evil-phish.com")
+	assert.Contains(t, domains, "login.evil-phish.com")
+}
+
 func TestParseCertDomains_ExtractsCNAndSANs(t *testing.T) {
 	der := generateTestCert(t, "example.com", []string{"example.com", "www.example.com", "api.example.com"})
 	leafInput := buildTestLeafInput(der)

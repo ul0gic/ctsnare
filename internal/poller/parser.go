@@ -98,23 +98,17 @@ func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 // wrapTBSCertificate wraps a raw TBSCertificate in a minimal ASN.1
 // Certificate structure so x509.ParseCertificate can handle it.
 // This is needed for pre-certificates (entry_type=1).
+//
+// x509.ParseCertificate enforces that the outer Certificate.signatureAlgorithm
+// matches the inner TBSCertificate.signature AlgorithmIdentifier. We therefore
+// extract the real signature AlgorithmIdentifier from inside the TBSCertificate
+// and reuse its exact DER bytes as the outer algorithm so inner == outer holds
+// for any algorithm (RSA, ECDSA, Ed25519). The signature BIT STRING is left
+// empty: ParseCertificate does not verify the signature value.
 func wrapTBSCertificate(tbs []byte) ([]byte, error) {
-	// A Certificate is: SEQUENCE { TBSCertificate, AlgorithmIdentifier, BIT STRING }
-	// We use a dummy signature algorithm (SHA256WithRSA) and empty signature.
-	dummyAlgID := asn1.RawValue{
-		Class:      asn1.ClassUniversal,
-		Tag:        asn1.TagSequence,
-		IsCompound: true,
-		Bytes: func() []byte {
-			// SHA256WithRSA OID: 1.2.840.113549.1.1.11
-			oid, _ := asn1.Marshal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 11})
-			null, _ := asn1.Marshal(asn1.RawValue{Tag: asn1.TagNull})
-			return append(oid, null...)
-		}(),
-	}
-	algBytes, err := asn1.Marshal(dummyAlgID)
+	algBytes, err := extractTBSSignatureAlgorithm(tbs)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling dummy algorithm: %w", err)
+		return nil, fmt.Errorf("extracting TBS signature algorithm: %w", err)
 	}
 
 	// Empty signature as BIT STRING.
@@ -123,8 +117,10 @@ func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling dummy signature: %w", err)
 	}
 
-	// Wrap in outer SEQUENCE.
-	inner := append(tbs, algBytes...)
+	// Wrap in outer SEQUENCE: { TBSCertificate, AlgorithmIdentifier, BIT STRING }.
+	inner := make([]byte, 0, len(tbs)+len(algBytes)+len(sigBytes))
+	inner = append(inner, tbs...)
+	inner = append(inner, algBytes...)
 	inner = append(inner, sigBytes...)
 
 	outer := asn1.RawValue{
@@ -140,6 +136,57 @@ func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 	}
 
 	return result, nil
+}
+
+// extractTBSSignatureAlgorithm pulls the raw DER bytes of the `signature`
+// AlgorithmIdentifier out of a TBSCertificate. The TBSCertificate SEQUENCE is:
+//
+//	version         [0] EXPLICIT Version DEFAULT v1   -- optional
+//	serialNumber        CertificateSerialNumber
+//	signature           AlgorithmIdentifier            -- the element we want
+//	...
+//
+// We walk the SEQUENCE element-by-element with asn1.RawValue and return the
+// full DER encoding (tag + length + content) of the signature element.
+func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
+	var seq asn1.RawValue
+	if _, err := asn1.Unmarshal(tbs, &seq); err != nil {
+		return nil, fmt.Errorf("parsing TBSCertificate sequence: %w", err)
+	}
+	if seq.Tag != asn1.TagSequence || !seq.IsCompound {
+		return nil, fmt.Errorf("TBSCertificate is not a SEQUENCE")
+	}
+
+	rest := seq.Bytes
+
+	// Element 1: version [0] EXPLICIT — present only if context-specific tag 0.
+	var first asn1.RawValue
+	remaining, err := asn1.Unmarshal(rest, &first)
+	if err != nil {
+		return nil, fmt.Errorf("parsing first TBS element: %w", err)
+	}
+	if first.Class == asn1.ClassContextSpecific && first.Tag == 0 {
+		// version was present; serialNumber is next.
+		rest = remaining
+	}
+
+	// serialNumber.
+	var serial asn1.RawValue
+	rest, err = asn1.Unmarshal(rest, &serial)
+	if err != nil {
+		return nil, fmt.Errorf("parsing serialNumber: %w", err)
+	}
+
+	// signature AlgorithmIdentifier — capture its full DER bytes.
+	var sigAlg asn1.RawValue
+	if _, err := asn1.Unmarshal(rest, &sigAlg); err != nil {
+		return nil, fmt.Errorf("parsing signature AlgorithmIdentifier: %w", err)
+	}
+	if sigAlg.Tag != asn1.TagSequence || !sigAlg.IsCompound {
+		return nil, fmt.Errorf("signature AlgorithmIdentifier is not a SEQUENCE")
+	}
+
+	return sigAlg.FullBytes, nil
 }
 
 // uniqueDomains extracts all unique domain names from a certificate:
