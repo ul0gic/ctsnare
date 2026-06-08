@@ -102,7 +102,7 @@ func (m DetailModel) resize(msg tea.WindowSizeMsg) DetailModel {
 func (m DetailModel) handleKey(msg tea.KeyMsg) (handled bool, model DetailModel, cmd tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		return true, m, func() tea.Msg { return SwitchViewMsg{View: 1} }
+		return true, m, func() tea.Msg { return SwitchViewMsg{View: viewExplorer} }
 	case "enter":
 		// Drill down to the subdomain list if count > 1.
 		if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {

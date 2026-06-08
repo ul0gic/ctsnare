@@ -7,7 +7,10 @@ import "time"
 // Multiple fields are combined with AND logic.
 type QueryFilter struct {
 	// Keyword filters hits where the keywords JSON column contains this substring.
-	// Case-sensitive substring match against the stored JSON.
+	// Case-insensitive (ASCII) substring match via SQL LIKE against the stored
+	// keywords JSON array. Because the match runs against the JSON-serialized
+	// text, the value is not escaped — JSON punctuation and LIKE wildcards
+	// (% and _) in the keyword are treated literally as part of the pattern.
 	Keyword string
 
 	// ScoreMin filters hits with a score at or above this value.
@@ -46,9 +49,10 @@ type QueryFilter struct {
 	// Any other value defaults to "DESC".
 	SortDir string
 
-	// Bookmarked filters to only bookmarked hits when true.
-	// False (default) means no bookmark filter.
-	Bookmarked bool
+	// Bookmarked is a tri-state bookmark filter. Nil (default) means no bookmark
+	// filter; a non-nil true means only bookmarked hits; a non-nil false means
+	// only non-bookmarked hits.
+	Bookmarked *bool
 
 	// LiveOnly filters to only live domains (those that responded to HTTP probe) when true.
 	// False (default) means no liveness filter.

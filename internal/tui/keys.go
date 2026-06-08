@@ -39,7 +39,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
-			key.WithHelp("/", "search"),
+			key.WithHelp("/", "search keyword"),
 		),
 		Sort: key.NewBinding(
 			key.WithKeys("s"),
@@ -59,7 +59,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Clear: key.NewBinding(
 			key.WithKeys("C"),
-			key.WithHelp("C", "clear"),
+			key.WithHelp("C", "clear all (wipes DB)"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

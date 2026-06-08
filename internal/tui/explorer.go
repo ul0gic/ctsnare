@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -42,11 +43,18 @@ type ExplorerModel struct {
 	height        int
 	ready         bool
 	selected      map[int]bool
-	keepSelection bool            // preserve selection across the next reload (e.g. sort)
-	confirmAction string          // empty, "delete-single", "delete-batch", "clear-all"
-	confirmDomain string          // domain for single delete confirmation
-	deletedSet    map[string]bool // recently deleted domains, filtered from reloads
-	statusText    string          // brief status message shown in filter bar
+	keepSelection bool   // preserve selection across the next reload (e.g. sort)
+	confirmAction string // empty, "delete-single", "delete-batch", "clear-all"
+	confirmDomain string // domain for single delete confirmation
+	// deletedSet holds domains deleted since the last reload, filtered out of the
+	// next HitsLoadedMsg so an in-flight poller re-insert cannot resurrect a row
+	// the user just deleted. It is bounded to a single reload cycle: every
+	// explicit reload (sort, filter apply, tab-in, r) clears it, because the
+	// freshly loaded set already reflects deletions committed to the DB. A domain
+	// is therefore only suppressed until the next reload — if it is legitimately
+	// re-observed and re-stored later, it reappears on the next load.
+	deletedSet map[string]bool
+	statusText string // brief status message shown in filter bar
 }
 
 // NewExplorerModel creates a new DB explorer view.
@@ -221,40 +229,74 @@ func (m ExplorerModel) handleKey(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 	// Clear status message on any key press.
 	m.statusText = ""
 
-	switch msg.String() {
-	case "s":
-		return m.cycleSort(), m.loadHitsCmd()
+	// Clear-all (C) is the single most destructive action; route it through the
+	// keymap binding so the help overlay and the handler share one source of truth.
+	if key.Matches(msg, m.keys.Clear) {
+		return m.handleDeleteKey("C"), nil
+	}
 
-	case "enter":
-		if row, ok := m.currentRow(); ok {
-			hit := m.hits[row]
-			return m, func() tea.Msg { return ShowDetailMsg{Hit: hit} }
-		}
-		return m, nil
-
-	case "r":
-		// Explicit reload clears the deleted set and status.
-		m.deletedSet = make(map[string]bool)
-		m.statusText = ""
-		m.loading = true
-		return m, m.loadHitsCmd()
-
-	case " ", "a", "A": // selection keys
-		return m.handleSelectionKey(msg.String())
-
-	case "d", "D", "C": // destructive keys (open a confirmation)
-		return m.handleDeleteKey(msg.String()), nil
-
-	case "b": // bookmark toggle
-		if row, ok := m.currentRow(); ok {
-			return m, m.bookmarkToggleCmd(row)
-		}
-		return m, nil
+	if handled, model, cmd := m.handleActionKey(msg.String()); handled {
+		return model, cmd
 	}
 
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
+}
+
+// handleActionKey dispatches the explorer's non-confirmation action keys. It
+// returns handled=false when the key should fall through to the table.
+func (m ExplorerModel) handleActionKey(key string) (handled bool, model ExplorerModel, cmd tea.Cmd) {
+	switch key {
+	case "s":
+		return true, m.cycleSort(), m.loadHitsCmd()
+
+	case "enter":
+		model, cmd = m.showDetailCmd()
+		return true, model, cmd
+
+	case "r":
+		model, cmd = m.reload()
+		return true, model, cmd
+
+	case " ", "a", "A": // selection keys
+		model, cmd = m.handleSelectionKey(key)
+		return true, model, cmd
+
+	case "d", "D": // destructive keys (open a confirmation)
+		return true, m.handleDeleteKey(key), nil
+
+	case "b": // bookmark toggle
+		model, cmd = m.bookmarkCurrent()
+		return true, model, cmd
+	}
+	return false, m, nil
+}
+
+// showDetailCmd emits a ShowDetailMsg for the row under the cursor, if any.
+func (m ExplorerModel) showDetailCmd() (ExplorerModel, tea.Cmd) {
+	if row, ok := m.currentRow(); ok {
+		hit := m.hits[row]
+		return m, func() tea.Msg { return ShowDetailMsg{Hit: hit} }
+	}
+	return m, nil
+}
+
+// reload triggers an explicit reload, clearing the per-cycle deleted-domain
+// guard and any transient status text.
+func (m ExplorerModel) reload() (ExplorerModel, tea.Cmd) {
+	m.deletedSet = make(map[string]bool)
+	m.statusText = ""
+	m.loading = true
+	return m, m.loadHitsCmd()
+}
+
+// bookmarkCurrent toggles the bookmark on the row under the cursor, if any.
+func (m ExplorerModel) bookmarkCurrent() (ExplorerModel, tea.Cmd) {
+	if row, ok := m.currentRow(); ok {
+		return m, m.bookmarkToggleCmd(row)
+	}
+	return m, nil
 }
 
 // handleSelectionKey handles the row-selection bindings: toggle (space),
@@ -313,6 +355,9 @@ func (m ExplorerModel) cycleSort() ExplorerModel {
 	m.filter.SortDir = m.sortDir
 	m.loading = true
 	m.keepSelection = true
+	// A sort reload re-reads committed state; the deleted-domain guard is no
+	// longer needed and must not leak into the next session.
+	m.deletedSet = make(map[string]bool)
 	return m
 }
 
@@ -382,8 +427,12 @@ func (m ExplorerModel) View() string {
 	// Build the panel title from filter/sort/count info.
 	panelTitle := m.buildPanelTitle()
 
-	// Table rendered inside the panel.
+	// Table rendered inside the panel, or an empty-state hint when there are
+	// no rows to show.
 	tableView := m.table.View()
+	if !m.loading && len(m.hits) == 0 {
+		tableView = m.renderEmptyState()
+	}
 
 	// Wrap the table in a titled panel.
 	contentPanel := renderTitledPanel(panelTitle, tableView, m.width)
@@ -447,11 +496,21 @@ func (m ExplorerModel) filterParts() []string {
 	if m.filter.Severity != "" {
 		parts = append(parts, "severity:"+m.filter.Severity)
 	}
+	if m.filter.TLD != "" {
+		parts = append(parts, "tld:"+m.filter.TLD)
+	}
 	if m.filter.Session != "" {
 		parts = append(parts, "session:"+m.filter.Session)
 	}
-	if m.filter.Bookmarked {
-		parts = append(parts, "bookmarked:yes")
+	if m.filter.LiveOnly {
+		parts = append(parts, "live:yes")
+	}
+	if m.filter.Bookmarked != nil {
+		if *m.filter.Bookmarked {
+			parts = append(parts, "bookmarked:yes")
+		} else {
+			parts = append(parts, "bookmarked:no")
+		}
 	}
 	if m.filter.BaseDomain != "" {
 		parts = append(parts, "base:"+m.filter.BaseDomain)
@@ -468,6 +527,9 @@ func (m *ExplorerModel) SetFilter(f domain.QueryFilter) tea.Cmd {
 	}
 	m.filter = f
 	m.loading = true
+	// A filter-driven reload re-reads committed state, so the per-cycle
+	// deleted-domain guard can be dropped here too.
+	m.deletedSet = make(map[string]bool)
 	return m.loadHitsCmd()
 }
 
@@ -484,16 +546,47 @@ func (m ExplorerModel) renderConfirmPrompt() string {
 	return StyleConfirmOverlay.Width(m.width - 2).Render(" " + prompt)
 }
 
+// renderEmptyState returns a centered hint shown when the table has no rows.
+// It distinguishes "no data yet" from "no matches for the active filter" so the
+// user can tell whether the database is empty or their filter excluded
+// everything. The block is padded to roughly the table height to keep the panel
+// from collapsing.
+func (m ExplorerModel) renderEmptyState() string {
+	var msg string
+	if len(m.filterParts()) > 0 {
+		msg = "No hits match the current filter. Press f to adjust, or ctrl+l in the filter to clear it."
+	} else {
+		msg = "No hits found. Start watching to populate (ctsnare watch)."
+	}
+
+	hint := StyleHelpDesc.Render(msg)
+	body := lipgloss.Place(
+		m.table.Width(), m.table.Height(),
+		lipgloss.Center, lipgloss.Center,
+		hint,
+	)
+	return body
+}
+
 func (m ExplorerModel) renderHelpBar() string {
 	sep := StyleHelpDesc.Render("  ")
-	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
-		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit") + sep +
-		StyleHelpKey.Render("s") + StyleHelpDesc.Render("=sort") + sep +
-		StyleHelpKey.Render("f") + StyleHelpDesc.Render("=filter") + sep +
-		StyleHelpKey.Render("b") + StyleHelpDesc.Render("=mark") + sep +
-		StyleHelpKey.Render("Space") + StyleHelpDesc.Render("=select") + sep +
-		StyleHelpKey.Render("d") + StyleHelpDesc.Render("=delete") + sep +
-		StyleHelpKey.Render("Enter") + StyleHelpDesc.Render("=detail")
+	kv := func(k, v string) string {
+		return StyleHelpKey.Render(k) + StyleHelpDesc.Render(v)
+	}
+	// Lead with the everyday keys, then the destructive batch keys (notably C,
+	// which wipes the whole DB), then ? for the full key list.
+	help := kv("Tab", "=views") + sep +
+		kv("s", "=sort") + sep +
+		kv("f", "=filter") + sep +
+		kv("/", "=search") + sep +
+		kv("Space", "=select") + sep +
+		kv("b", "=mark") + sep +
+		kv("d", "=del") + sep +
+		kv("D", "=del-sel") + sep +
+		StyleHighSeverity.Render("C") + StyleHelpDesc.Render("=clear-all") + sep +
+		kv("r", "=reload") + sep +
+		kv("?", "=help") + sep +
+		kv("q", "=quit")
 	return " " + help
 }
 
@@ -533,12 +626,21 @@ func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
 	return table.Row{checkbox, sevText, scoreText, domText, kw, issuer, hit.Session, ts}
 }
 
-// truncate shortens s to at most max runes, appending an ellipsis when cut.
+// truncate shortens s to at most maxLen runes, appending an ellipsis when cut.
+// It operates on runes, not bytes, so multibyte (IDN/homograph) domains are
+// never split mid-rune into invalid UTF-8.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	if maxLen <= 3 {
+		return string(r[:maxLen])
+	}
+	return string(r[:maxLen-3]) + "..."
 }
 
 // formatDomainCell renders a domain with bookmark/live indicators, truncating

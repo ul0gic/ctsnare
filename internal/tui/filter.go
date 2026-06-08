@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,10 @@ const (
 	filterFieldScoreMin
 	filterFieldSeverity
 	filterFieldTimeRange
+	filterFieldTLD
 	filterFieldSession
 	filterFieldBookmarked
+	filterFieldLiveOnly
 	filterFieldCount
 )
 
@@ -25,6 +28,7 @@ var (
 	severityOptions   = []string{"", "HIGH", "MED", "LOW"}
 	timeRangeOptions  = []string{"", "1h", "6h", "12h", "24h", "7d"}
 	bookmarkedOptions = []string{"", "yes", "no"}
+	liveOnlyOptions   = []string{"", "yes"}
 )
 
 // FilterAppliedMsg is sent when the user applies filter settings.
@@ -42,8 +46,10 @@ type FilterModel struct {
 	severityIdx   int
 	timeRangeIdx  int
 	bookmarkedIdx int
+	liveOnlyIdx   int
 	width         int
 	height        int
+	errMsg        string // inline validation error shown on a rejected apply
 }
 
 // NewFilterModel creates a new filter input overlay.
@@ -63,16 +69,22 @@ func NewFilterModel() FilterModel {
 	inputs[filterFieldScoreMin] = scoreMin
 
 	severity := textinput.New()
-	severity.Placeholder = "all"
+	severity.Placeholder = "all (◄/► to cycle)"
 	severity.Prompt = "Severity:   "
 	severity.CharLimit = 4
 	inputs[filterFieldSeverity] = severity
 
 	timeRange := textinput.New()
-	timeRange.Placeholder = "all"
+	timeRange.Placeholder = "all (◄/► to cycle)"
 	timeRange.Prompt = "Time Range: "
 	timeRange.CharLimit = 3
 	inputs[filterFieldTimeRange] = timeRange
+
+	tld := textinput.New()
+	tld.Placeholder = "e.g. xyz"
+	tld.Prompt = "TLD:        "
+	tld.CharLimit = 12
+	inputs[filterFieldTLD] = tld
 
 	session := textinput.New()
 	session.Placeholder = "all sessions"
@@ -81,10 +93,16 @@ func NewFilterModel() FilterModel {
 	inputs[filterFieldSession] = session
 
 	bookmarked := textinput.New()
-	bookmarked.Placeholder = "all"
+	bookmarked.Placeholder = "all (◄/► to cycle)"
 	bookmarked.Prompt = "Bookmarked: "
 	bookmarked.CharLimit = 3
 	inputs[filterFieldBookmarked] = bookmarked
+
+	liveOnly := textinput.New()
+	liveOnly.Placeholder = "all (◄/► to cycle)"
+	liveOnly.Prompt = "Live Only:  "
+	liveOnly.CharLimit = 3
+	inputs[filterFieldLiveOnly] = liveOnly
 
 	inputs[filterFieldKeyword].Focus()
 
@@ -126,7 +144,7 @@ func (m FilterModel) handleKey(msg tea.KeyMsg) (handled bool, model FilterModel,
 		return true, m, func() tea.Msg { return FilterCancelledMsg{} }
 
 	case "enter":
-		return true, m, func() tea.Msg { return FilterAppliedMsg{Filter: m.buildFilter()} }
+		return m.applyFilter()
 
 	case "tab", "down":
 		m.inputs[m.activeField].Blur()
@@ -145,6 +163,8 @@ func (m FilterModel) handleKey(msg tea.KeyMsg) (handled bool, model FilterModel,
 		m.severityIdx = 0
 		m.timeRangeIdx = 0
 		m.bookmarkedIdx = 0
+		m.liveOnlyIdx = 0
+		m.errMsg = ""
 		return true, m, nil
 	}
 
@@ -154,9 +174,21 @@ func (m FilterModel) handleKey(msg tea.KeyMsg) (handled bool, model FilterModel,
 	return false, m, nil
 }
 
+// applyFilter validates the current inputs and either emits FilterAppliedMsg or
+// keeps the overlay open with an inline error message.
+func (m FilterModel) applyFilter() (handled bool, model FilterModel, cmd tea.Cmd) {
+	f, err := m.buildFilter()
+	if err != nil {
+		m.errMsg = err.Error()
+		return true, m, nil
+	}
+	m.errMsg = ""
+	return true, m, func() tea.Msg { return FilterAppliedMsg{Filter: f} }
+}
+
 // handleOptionCycle advances the option-style field under focus (severity,
-// time range, bookmarked) in response to left/right/h/l. It returns true when
-// the key cycled an option, false otherwise.
+// time range, bookmarked, live-only) in response to left/right/h/l. It returns
+// true when the key cycled an option, false otherwise.
 func (m *FilterModel) handleOptionCycle(key string) bool {
 	var delta int
 	switch key {
@@ -178,6 +210,9 @@ func (m *FilterModel) handleOptionCycle(key string) bool {
 	case filterFieldBookmarked:
 		m.bookmarkedIdx = wrapIndex(m.bookmarkedIdx, delta, len(bookmarkedOptions))
 		m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
+	case filterFieldLiveOnly:
+		m.liveOnlyIdx = wrapIndex(m.liveOnlyIdx, delta, len(liveOnlyOptions))
+		m.inputs[filterFieldLiveOnly].SetValue(liveOnlyOptions[m.liveOnlyIdx])
 	default:
 		return false
 	}
@@ -193,19 +228,23 @@ func wrapIndex(idx, delta, n int) int {
 func (m FilterModel) View() string {
 	title := StyleTitle.Render("Filter Hits")
 
-	var fields string
-	var fieldsSb187 strings.Builder
+	var fields strings.Builder
 	for _, input := range m.inputs {
-		fieldsSb187.WriteString(input.View() + "\n")
+		fields.WriteString(input.View() + "\n")
 	}
-	fields += fieldsSb187.String()
 
 	help := StyleHelpKey.Render("enter") + StyleHelpDesc.Render(" apply") + "  " +
 		StyleHelpKey.Render("esc") + StyleHelpDesc.Render(" cancel") + "  " +
 		StyleHelpKey.Render("tab") + StyleHelpDesc.Render(" next field") + "  " +
+		StyleHelpKey.Render("◄/►") + StyleHelpDesc.Render(" cycle") + "  " +
 		StyleHelpKey.Render("ctrl+l") + StyleHelpDesc.Render(" clear all")
 
-	content := lipgloss.JoinVertical(lipgloss.Left, title, "", fields, help)
+	sections := []string{title, "", fields.String()}
+	if m.errMsg != "" {
+		sections = append(sections, StyleHighSeverity.Render("⚠ "+m.errMsg))
+	}
+	sections = append(sections, help)
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
 	panelWidth := 50
 	if m.width > 0 && m.width < panelWidth+4 {
@@ -219,29 +258,91 @@ func (m FilterModel) View() string {
 	)
 }
 
-func (m FilterModel) buildFilter() domain.QueryFilter {
+// buildFilter translates the overlay inputs into a QueryFilter. It returns an
+// error describing the first invalid field so the overlay can surface it
+// instead of silently producing a filter that matches nothing.
+func (m FilterModel) buildFilter() (domain.QueryFilter, error) {
 	var f domain.QueryFilter
 
 	f.Keyword = m.inputs[filterFieldKeyword].Value()
+	f.Session = m.inputs[filterFieldSession].Value()
+	f.TLD = m.inputs[filterFieldTLD].Value()
 
-	if v := m.inputs[filterFieldScoreMin].Value(); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.ScoreMin = n
+	if err := m.applyScoreMin(&f); err != nil {
+		return domain.QueryFilter{}, err
+	}
+	if err := m.applySeverity(&f); err != nil {
+		return domain.QueryFilter{}, err
+	}
+	if err := m.applyTimeRange(&f); err != nil {
+		return domain.QueryFilter{}, err
+	}
+	m.applyBookmarked(&f)
+	m.applyLiveOnly(&f)
+
+	return f, nil
+}
+
+// applyScoreMin parses and validates the min-score field.
+func (m FilterModel) applyScoreMin(f *domain.QueryFilter) error {
+	v := strings.TrimSpace(m.inputs[filterFieldScoreMin].Value())
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return fmt.Errorf("min score must be a non-negative number, got %q", v)
+	}
+	f.ScoreMin = n
+	return nil
+}
+
+// applySeverity validates the severity field against the allowed values.
+func (m FilterModel) applySeverity(f *domain.QueryFilter) error {
+	v := strings.TrimSpace(m.inputs[filterFieldSeverity].Value())
+	if v == "" {
+		return nil
+	}
+	for _, opt := range severityOptions {
+		if opt != "" && opt == v {
+			f.Severity = v
+			return nil
 		}
 	}
+	return fmt.Errorf("severity must be HIGH, MED, or LOW, got %q", v)
+}
 
-	f.Severity = m.inputs[filterFieldSeverity].Value()
-	f.Session = m.inputs[filterFieldSession].Value()
-
-	if v := m.inputs[filterFieldTimeRange].Value(); v != "" {
-		f.Since = parseTimeRange(v)
+// applyTimeRange validates the time-range field against the allowed values.
+func (m FilterModel) applyTimeRange(f *domain.QueryFilter) error {
+	v := strings.TrimSpace(m.inputs[filterFieldTimeRange].Value())
+	if v == "" {
+		return nil
 	}
-
-	if m.inputs[filterFieldBookmarked].Value() == "yes" {
-		f.Bookmarked = true
+	d := parseTimeRange(v)
+	if d == 0 {
+		return fmt.Errorf("time range must be one of 1h, 6h, 12h, 24h, 7d, got %q", v)
 	}
+	f.Since = d
+	return nil
+}
 
-	return f
+// applyBookmarked maps the tri-state bookmarked field onto the filter.
+func (m FilterModel) applyBookmarked(f *domain.QueryFilter) {
+	switch m.inputs[filterFieldBookmarked].Value() {
+	case "yes":
+		yes := true
+		f.Bookmarked = &yes
+	case "no":
+		no := false
+		f.Bookmarked = &no
+	}
+}
+
+// applyLiveOnly maps the live-only field onto the filter.
+func (m FilterModel) applyLiveOnly(f *domain.QueryFilter) {
+	if m.inputs[filterFieldLiveOnly].Value() == "yes" {
+		f.LiveOnly = true
+	}
 }
 
 func parseTimeRange(s string) time.Duration {

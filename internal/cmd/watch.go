@@ -285,27 +285,7 @@ func bridgePollerStats(
 				return
 			}
 			perLog[stats.LogName] = stats
-
-			// Aggregate across all logs.
-			var totalCerts int64
-			var totalHits int64
-			for _, s := range perLog {
-				totalCerts += s.CertsScanned
-				totalHits += s.HitsFound
-			}
-
-			elapsed := time.Since(startTime).Seconds()
-			var certsPerSec float64
-			if elapsed > 0 {
-				certsPerSec = float64(totalCerts) / elapsed
-			}
-
-			agg := tui.PollStats{
-				CertsScanned: totalCerts,
-				HitsFound:    totalHits,
-				CertsPerSec:  certsPerSec,
-				ActiveLogs:   len(perLog),
-			}
+			agg := aggregatePollStats(perLog, time.Since(startTime))
 
 			select {
 			case out <- agg:
@@ -313,5 +293,31 @@ func bridgePollerStats(
 				// Don't block if TUI is slow to consume.
 			}
 		}
+	}
+}
+
+// aggregatePollStats sums per-log poller stats into a single tui.PollStats and
+// derives the session-average certs/sec and hits/min rates over elapsed.
+func aggregatePollStats(perLog map[string]poller.PollStats, elapsed time.Duration) tui.PollStats {
+	var totalCerts, totalHits int64
+	for _, s := range perLog {
+		totalCerts += s.CertsScanned
+		totalHits += s.HitsFound
+	}
+
+	var certsPerSec, hitsPerMin float64
+	if secs := elapsed.Seconds(); secs > 0 {
+		certsPerSec = float64(totalCerts) / secs
+	}
+	if mins := elapsed.Minutes(); mins > 0 {
+		hitsPerMin = float64(totalHits) / mins
+	}
+
+	return tui.PollStats{
+		CertsScanned: totalCerts,
+		HitsFound:    totalHits,
+		CertsPerSec:  certsPerSec,
+		HitsPerMin:   hitsPerMin,
+		ActiveLogs:   len(perLog),
 	}
 }

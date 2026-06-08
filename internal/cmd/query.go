@@ -57,7 +57,7 @@ func init() {
 }
 
 // runQuery opens the database, queries hits with the given filters, and formats output.
-func runQuery(_ *cobra.Command, _ []string) error {
+func runQuery(cmd *cobra.Command, _ []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -77,17 +77,22 @@ func runQuery(_ *cobra.Command, _ []string) error {
 	defer closeStore(store)
 
 	filter := domain.QueryFilter{
-		Keyword:    queryKeyword,
-		ScoreMin:   queryScoreMin,
-		Since:      querySince,
-		TLD:        queryTLD,
-		Session:    querySession,
-		Severity:   querySeverity,
-		Limit:      queryLimit,
-		SortBy:     "score",
-		SortDir:    "DESC",
-		Bookmarked: queryBookmarked,
-		LiveOnly:   queryLiveOnly,
+		Keyword:  queryKeyword,
+		ScoreMin: queryScoreMin,
+		Since:    querySince,
+		TLD:      queryTLD,
+		Session:  querySession,
+		Severity: querySeverity,
+		Limit:    queryLimit,
+		SortBy:   "score",
+		SortDir:  "DESC",
+		LiveOnly: queryLiveOnly,
+	}
+	// Only apply the bookmark filter when --bookmarked was explicitly set.
+	// --bookmarked / --bookmarked=true → only bookmarked; --bookmarked=false →
+	// only non-bookmarked; flag absent → no bookmark filter.
+	if cmd.Flags().Changed("bookmarked") {
+		filter.Bookmarked = &queryBookmarked
 	}
 
 	hits, err := store.QueryHits(context.Background(), filter)

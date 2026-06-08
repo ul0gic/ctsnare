@@ -206,14 +206,33 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 		where = append(where, "domain LIKE ?")
 		args = append(args, "%"+tld)
 	}
-	if filter.Bookmarked {
-		where = append(where, "bookmarked = 1")
+	if pred := bookmarkedPredicate(filter.Bookmarked); pred != "" {
+		where = append(where, pred)
 	}
 	if filter.LiveOnly {
 		where = append(where, "is_live = 1")
 	}
 	return where, args
 }
+
+// bookmarkedPredicate maps the tri-state bookmark filter to a SQL predicate.
+// A nil filter yields no predicate; true matches bookmarked rows, false matches
+// non-bookmarked rows.
+func bookmarkedPredicate(bookmarked *bool) string {
+	if bookmarked == nil {
+		return ""
+	}
+	if *bookmarked {
+		return "bookmarked = 1"
+	}
+	return "bookmarked = 0"
+}
+
+// severityRankExpr ranks the severity TEXT column by threat level rather than
+// lexically. HIGH > MED > LOW, so a DESC sort surfaces the highest-threat hits
+// first. The expression is a constant — no user data is interpolated — so it
+// preserves the injection-safe posture of orderClause.
+const severityRankExpr = "CASE severity WHEN 'HIGH' THEN 3 WHEN 'MED' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END"
 
 // orderClause builds the ORDER BY clause from the filter's sort settings.
 func orderClause(filter domain.QueryFilter) string {
@@ -225,10 +244,17 @@ func orderClause(filter domain.QueryFilter) string {
 	if strings.EqualFold(filter.SortDir, "ASC") {
 		sortDir = "ASC"
 	}
-	// SECURITY: sortBy is sanitized through sanitizeSortColumn() allowlist;
-	// sortDir is limited to "ASC"/"DESC" by the check above. Both are safe
-	// for direct interpolation. ORDER BY does not support parameterized placeholders.
-	return fmt.Sprintf(" ORDER BY %s %s", sortBy, sortDir)
+	// Severity is a TEXT column whose values (HIGH/MED/LOW) have no natural
+	// lexical threat order; rank them numerically instead.
+	sortExpr := sortBy
+	if sortBy == "severity" {
+		sortExpr = severityRankExpr
+	}
+	// SECURITY: sortBy is sanitized through sanitizeSortColumn() allowlist and
+	// the severity case maps to a constant expression; sortDir is limited to
+	// "ASC"/"DESC" by the check above. Both are safe for direct interpolation.
+	// ORDER BY does not support parameterized placeholders.
+	return fmt.Sprintf(" ORDER BY %s %s", sortExpr, sortDir)
 }
 
 // QueryHits builds and executes a dynamic SQL query from the filter fields.

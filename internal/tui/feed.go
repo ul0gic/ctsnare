@@ -249,6 +249,7 @@ func (m FeedModel) renderHelpBar() string {
 	help := StyleHelpKey.Render("Tab") + StyleHelpDesc.Render("=views") + sep +
 		StyleHelpKey.Render("p") + StyleHelpDesc.Render("=pause") + sep +
 		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll") + sep +
+		StyleHelpKey.Render("?") + StyleHelpDesc.Render("=help") + sep +
 		StyleHelpKey.Render("q") + StyleHelpDesc.Render("=quit")
 	return " " + help
 }
@@ -311,10 +312,7 @@ func (m FeedModel) renderHitLine(hit domain.Hit) string {
 		domWidth = 38
 	}
 
-	domainStr := hit.Domain
-	if len(domainStr) > domWidth {
-		domainStr = domainStr[:domWidth-3] + "..."
-	}
+	domainStr := truncate(hit.Domain, domWidth)
 	paddedDomain := fmt.Sprintf("%-*s", domWidth, domainStr)
 	domainRendered := sevStyle.Render(paddedDomain)
 	if hit.IsLive {
@@ -330,29 +328,19 @@ func (m FeedModel) renderHitLine(hit domain.Hit) string {
 			kw = "—"
 		}
 		kwWidth := 22
-		if len(kw) > kwWidth {
-			kw = kw[:kwWidth-3] + "..."
-		}
+		kw = truncate(kw, kwWidth)
 		kwRendered := fmt.Sprintf("%-*s", kwWidth, kw)
 		line += " " + kwRendered
 	}
 
 	if m.width >= 100 {
-		issuer := hit.IssuerCN
 		issuerWidth := 15
-		if len(issuer) > issuerWidth {
-			issuer = issuer[:issuerWidth-3] + "..."
-		}
+		issuer := truncate(hit.IssuerCN, issuerWidth)
 		issuerRendered := fmt.Sprintf("%-*s", issuerWidth, issuer)
 		line += " " + issuerRendered
 	}
 
 	return line
-}
-
-func renderSeverityTag(severity string) string {
-	style := SeverityStyle(severity)
-	return style.Render(fmt.Sprintf("[%-4s]", severity))
 }
 
 // renderSidebarContent renders the keyword list content (without panel wrapping).
@@ -365,10 +353,7 @@ func (m FeedModel) renderSidebarContent() string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		keyword := kw.Keyword
-		if len(keyword) > 14 {
-			keyword = keyword[:11] + "..."
-		}
+		keyword := truncate(kw.Keyword, 14)
 		fmt.Fprintf(&b, " %2d. %-14s %d", i+1, keyword, kw.Count)
 	}
 	return b.String()

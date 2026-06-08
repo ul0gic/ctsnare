@@ -297,21 +297,3 @@ func TestUpdateKeywordCounts_EmptyKeywords(t *testing.T) {
 	assert.Equal(t, "bitcoin", result[0].Keyword)
 	assert.Equal(t, 5, result[0].Count)
 }
-
-func TestRenderSeverityTag(t *testing.T) {
-	tests := []struct {
-		severity string
-		contains string
-	}{
-		{"HIGH", "HIGH"},
-		{"MED", "MED"},
-		{"LOW", "LOW"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		result := renderSeverityTag(tt.severity)
-		assert.Contains(t, result, tt.contains,
-			"renderSeverityTag(%q) should contain %q", tt.severity, tt.contains)
-	}
-}

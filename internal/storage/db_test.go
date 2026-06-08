@@ -17,6 +17,9 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
+// boolPtr returns a pointer to b, for setting tri-state QueryFilter fields.
+func boolPtr(b bool) *bool { return &b }
+
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -187,6 +190,67 @@ func TestQueryHits_SortOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, hits, 2)
 	assert.Equal(t, "high.com", hits[0].Domain)
+}
+
+func TestQueryHits_SeveritySort_RanksByThreatNotLexically(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	// Insert one of each severity. Lexically, HIGH < LOW < MED, so a naive
+	// ORDER BY severity would put MED on top for DESC — the bug BUG-001 fixes.
+	require.NoError(t, db.InsertHit(ctx, testHit("low.example", 2, domain.SeverityLow)))
+	require.NoError(t, db.InsertHit(ctx, testHit("med.example", 6, domain.SeverityMed)))
+	require.NoError(t, db.InsertHit(ctx, testHit("high.example", 9, domain.SeverityHigh)))
+
+	// DESC must surface HIGH first, then MED, then LOW (threat order).
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{SortBy: "severity", SortDir: "DESC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 3)
+	got := []domain.Severity{hits[0].Severity, hits[1].Severity, hits[2].Severity}
+	assert.Equal(t,
+		[]domain.Severity{domain.SeverityHigh, domain.SeverityMed, domain.SeverityLow},
+		got, "severity DESC should rank HIGH > MED > LOW")
+
+	// ASC must invert it: LOW first.
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{SortBy: "severity", SortDir: "ASC"})
+	require.NoError(t, err)
+	require.Len(t, hits, 3)
+	got = []domain.Severity{hits[0].Severity, hits[1].Severity, hits[2].Severity}
+	assert.Equal(t,
+		[]domain.Severity{domain.SeverityLow, domain.SeverityMed, domain.SeverityHigh},
+		got, "severity ASC should rank LOW < MED < HIGH")
+}
+
+func TestQueryHits_BookmarkedTriState(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, db.InsertHit(ctx, testHit("marked.example", 6, domain.SeverityHigh)))
+	require.NoError(t, db.InsertHit(ctx, testHit("plain.example", 4, domain.SeverityMed)))
+	require.NoError(t, db.SetBookmark(ctx, "marked.example", true))
+
+	// nil → no bookmark filter, both rows returned.
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	assert.Len(t, hits, 2, "nil Bookmarked must not filter")
+
+	// &true → only bookmarked.
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{Bookmarked: boolPtr(true)})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "marked.example", hits[0].Domain)
+
+	// &false → only non-bookmarked (the capability ENH-002 adds).
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{Bookmarked: boolPtr(false)})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "plain.example", hits[0].Domain)
+}
+
+func TestBookmarkedPredicate(t *testing.T) {
+	assert.Empty(t, bookmarkedPredicate(nil), "nil yields no predicate")
+	assert.Equal(t, "bookmarked = 1", bookmarkedPredicate(boolPtr(true)))
+	assert.Equal(t, "bookmarked = 0", bookmarkedPredicate(boolPtr(false)))
 }
 
 func TestQueryHits_LimitOffset(t *testing.T) {
@@ -826,7 +890,7 @@ func TestQueryHits_BookmarkedFilter(t *testing.T) {
 
 	require.NoError(t, db.SetBookmark(ctx, "bookmarked.com", true))
 
-	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true})
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: boolPtr(true)})
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
 	assert.Equal(t, "bookmarked.com", hits[0].Domain)
@@ -1196,13 +1260,13 @@ func TestQueryHits_BookmarkedAndLiveOnly_Combined(t *testing.T) {
 	require.NoError(t, db.SetBookmark(ctx, "bookmarked-dead.com", true))
 
 	// Query with both Bookmarked AND LiveOnly -- should return only bookmarked-live.com.
-	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true, LiveOnly: true})
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Bookmarked: boolPtr(true), LiveOnly: true})
 	require.NoError(t, err)
 	require.Len(t, hits, 1, "should return only hits that are both bookmarked and live")
 	assert.Equal(t, "bookmarked-live.com", hits[0].Domain)
 
 	// Just bookmarked -- should return 2.
-	hits, err = db.QueryHits(ctx, domain.QueryFilter{Bookmarked: true})
+	hits, err = db.QueryHits(ctx, domain.QueryFilter{Bookmarked: boolPtr(true)})
 	require.NoError(t, err)
 	assert.Len(t, hits, 2, "should return both bookmarked hits")
 

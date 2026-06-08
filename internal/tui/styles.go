@@ -11,9 +11,7 @@ var (
 	colorSubtle       = lipgloss.AdaptiveColor{Light: "#AAAAAA", Dark: "#555555"}
 	colorText         = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FAFAFA"}
 	colorStatusBg     = lipgloss.AdaptiveColor{Light: "#DDDDDD", Dark: "#333333"}
-	colorStatusFg     = lipgloss.AdaptiveColor{Light: "#333333", Dark: "#DDDDDD"}
 	colorLive         = lipgloss.AdaptiveColor{Light: "#008800", Dark: "#22DD22"}
-	colorDiscarded    = lipgloss.AdaptiveColor{Light: "#999999", Dark: "#555555"}
 	colorBookmark     = lipgloss.AdaptiveColor{Light: "#CC8800", Dark: "#FFD700"}
 )
 
@@ -30,25 +28,6 @@ var StyleMedSeverity = lipgloss.NewStyle().
 // StyleLowSeverity renders low-severity items in green.
 var StyleLowSeverity = lipgloss.NewStyle().
 	Foreground(colorLowSeverity)
-
-// StyleHeader renders the header bar with bold text and a bottom border.
-var StyleHeader = lipgloss.NewStyle().
-	Bold(true).
-	BorderStyle(lipgloss.NormalBorder()).
-	BorderBottom(true).
-	BorderForeground(colorSubtle)
-
-// StyleStatusBar renders the bottom status bar with a dark background.
-var StyleStatusBar = lipgloss.NewStyle().
-	Background(colorStatusBg).
-	Foreground(colorStatusFg).
-	Padding(0, 1)
-
-// StyleSelectedRow renders the currently selected row with inverted colors.
-var StyleSelectedRow = lipgloss.NewStyle().
-	Bold(true).
-	Background(colorText).
-	Foreground(colorStatusBg)
 
 // StyleHelpKey renders keybinding keys in bold muted text.
 var StyleHelpKey = lipgloss.NewStyle().
@@ -74,18 +53,9 @@ var StyleLiveDomain = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(colorLive)
 
-// StyleDiscardedDomain renders discarded (zero-score) domains in dim gray.
-var StyleDiscardedDomain = lipgloss.NewStyle().
-	Foreground(colorDiscarded)
-
 // StyleBookmarked renders the bookmark indicator in gold/yellow.
 var StyleBookmarked = lipgloss.NewStyle().
 	Foreground(colorBookmark)
-
-// StyleSelectedCheckbox renders the multi-select checkbox indicator for explorer rows.
-var StyleSelectedCheckbox = lipgloss.NewStyle().
-	Bold(true).
-	Foreground(colorLive)
 
 // --- Option B panel styles ---
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -17,11 +18,13 @@ const (
 	viewExplorer = 1
 	viewDetail   = 2
 	viewFilter   = 3
+	viewHelp     = 4
 )
 
 // AppModel is the root Bubble Tea model that manages view switching and message routing.
 type AppModel struct {
 	activeView  int
+	prevView    int // view to restore when the help overlay is dismissed
 	feed        FeedModel
 	explorer    ExplorerModel
 	detail      *DetailModel
@@ -246,37 +249,90 @@ func (m AppModel) forwardToFeed(msg tea.Msg, rearm tea.Cmd) (tea.Model, tea.Cmd)
 // that take precedence over the active view. It returns handled=true when the
 // key was consumed at this level; otherwise the caller delegates to the view.
 func (m AppModel) handleGlobalKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
-	// Global quit: ctrl+c always quits, q quits unless in filter overlay.
+	// Global quit: ctrl+c always quits.
 	if msg.String() == "ctrl+c" {
 		return true, m, tea.Quit
 	}
+
+	// The help overlay is modal: it handles its own dismissal and swallows
+	// everything else.
+	if m.activeView == viewHelp {
+		return m.handleHelpKey(msg)
+	}
+
+	// q quits unless in the filter overlay (where it is a typeable character).
 	if key.Matches(msg, m.keys.Quit) && m.activeView != viewFilter {
 		return true, m, tea.Quit
 	}
 
-	// Tab toggles between feed and explorer.
-	if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
-		if m.activeView == viewFeed {
-			m.activeView = viewExplorer
-			// Auto-reload explorer from DB when switching to it.
-			m.explorer.loading = true
-			return true, m, m.explorer.loadHitsCmd()
-		}
-		m.activeView = viewFeed
-		return true, m, nil
+	if handled, model, cmd := m.handleOverlayKey(msg); handled {
+		return true, model, cmd
 	}
 
-	// Filter overlay toggle.
-	if key.Matches(msg, m.keys.Filter) && m.activeView == viewExplorer {
-		f := NewFilterModel()
-		f.width = m.width
-		f.height = m.height
-		m.filter = &f
-		m.activeView = viewFilter
-		return true, m, m.filter.Init()
+	// Tab toggles between feed and explorer.
+	if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
+		return m.handleTab()
 	}
 
 	return false, m, nil
+}
+
+// handleOverlayKey opens the help or filter overlays. It returns handled=false
+// when no overlay-opening key matched.
+func (m AppModel) handleOverlayKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
+	// Help overlay toggle: available everywhere except the filter overlay, where
+	// "?" is a typeable character.
+	if key.Matches(msg, m.keys.Help) && m.activeView != viewFilter {
+		m.prevView = m.activeView
+		m.activeView = viewHelp
+		return true, m, nil
+	}
+
+	// Search (/) and Filter (f) both open the filter overlay in the explorer;
+	// the overlay opens focused on the keyword field.
+	if m.activeView == viewExplorer &&
+		(key.Matches(msg, m.keys.Search) || key.Matches(msg, m.keys.Filter)) {
+		opened := m.openFilterOverlay()
+		return true, opened, opened.filter.Init()
+	}
+
+	return false, m, nil
+}
+
+// handleHelpKey processes a key while the help overlay is active. The overlay is
+// modal: ?, esc, and q dismiss it back to the previous view; all other keys are
+// swallowed.
+func (m AppModel) handleHelpKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
+	if key.Matches(msg, m.keys.Help) || key.Matches(msg, m.keys.Escape) || key.Matches(msg, m.keys.Quit) {
+		m.activeView = m.prevView
+	}
+	return true, m, nil
+}
+
+// openFilterOverlay mounts a fresh filter overlay sized to the terminal.
+func (m AppModel) openFilterOverlay() AppModel {
+	f := NewFilterModel()
+	f.width = m.width
+	f.height = m.height
+	m.filter = &f
+	m.activeView = viewFilter
+	return m
+}
+
+// handleTab switches between the feed and explorer views, reloading the explorer
+// from the DB when entering it.
+func (m AppModel) handleTab() (handled bool, model tea.Model, cmd tea.Cmd) {
+	if m.activeView == viewFeed {
+		m.activeView = viewExplorer
+		// Auto-reload explorer from DB when switching to it. The fresh load
+		// reflects committed deletions, so drop the per-cycle deleted-domain
+		// guard to keep it from accumulating across the session.
+		m.explorer.loading = true
+		m.explorer.deletedSet = make(map[string]bool)
+		return true, m, m.explorer.loadHitsCmd()
+	}
+	m.activeView = viewFeed
+	return true, m, nil
 }
 
 // applyEnrichment propagates enrichment data for a domain into the feed,
@@ -308,6 +364,9 @@ func (m AppModel) applyEnrichment(msg EnrichmentMsg) {
 
 // View renders the currently active view.
 func (m AppModel) View() string {
+	if m.activeView == viewHelp {
+		return renderHelpOverlay(m.keys, m.width, m.height)
+	}
 	if m.activeView == viewFilter && m.filter != nil {
 		return m.filter.View()
 	}
@@ -318,6 +377,42 @@ func (m AppModel) View() string {
 		return m.explorer.View()
 	}
 	return m.feed.View()
+}
+
+// renderHelpOverlay renders a centered modal listing all key bindings, grouped
+// as defined by KeyMap.FullHelp(). It is the single discoverable surface for
+// the powerful explorer keys (clear, batch delete, select-all) that do not fit
+// in the compact help bar.
+func renderHelpOverlay(keys KeyMap, width, height int) string {
+	title := StyleTitle.Render("Keyboard Shortcuts")
+
+	var b strings.Builder
+	for _, group := range keys.FullHelp() {
+		for _, binding := range group {
+			h := binding.Help()
+			if h.Key == "" {
+				continue
+			}
+			b.WriteString(StyleHelpKey.Render(fmt.Sprintf("%-10s", h.Key)))
+			b.WriteString(StyleHelpDesc.Render(h.Desc))
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+	}
+
+	footer := StyleHelpKey.Render("?/esc/q") + StyleHelpDesc.Render(" close")
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", strings.TrimRight(b.String(), "\n"), "", footer)
+
+	panelWidth := 40
+	if width > 0 && width < panelWidth+4 {
+		panelWidth = width - 4
+	}
+
+	return lipgloss.Place(
+		width, height,
+		lipgloss.Center, lipgloss.Center,
+		StyleBorder.Width(panelWidth).Padding(1, 2).Render(content),
+	)
 }
 
 // --- Shared rendering helpers for Option B layout ---

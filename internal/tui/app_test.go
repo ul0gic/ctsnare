@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
@@ -438,4 +440,83 @@ func TestAppStatsMsgForwarded(t *testing.T) {
 	if app.feed.stats.HitsFound != 100 {
 		t.Errorf("expected hits found 100, got %d", app.feed.stats.HitsFound)
 	}
+}
+
+// pressRune sends a single-rune key press through the app and returns the model.
+func pressRune(t *testing.T, app AppModel, r rune) AppModel {
+	t.Helper()
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	return asAppModel(t, model)
+}
+
+func TestAppHelpOverlay_ToggleWithQuestionMark(t *testing.T) {
+	app := NewApp(nil, nil, nil, nil, nil, "all")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	app = asAppModel(t, model)
+
+	require.Equal(t, viewFeed, app.activeView)
+
+	// '?' opens the help overlay from the feed.
+	app = pressRune(t, app, '?')
+	assert.Equal(t, viewHelp, app.activeView, "? must open the help overlay")
+	assert.Equal(t, viewFeed, app.prevView, "help overlay must remember the prior view")
+
+	// The help overlay renders the FullHelp bindings, including the destructive
+	// clear-all key that is otherwise undiscoverable.
+	view := app.View()
+	assert.Contains(t, view, "Keyboard Shortcuts")
+	assert.Contains(t, view, "clear all")
+
+	// '?' again closes it and restores the previous view.
+	app = pressRune(t, app, '?')
+	assert.Equal(t, viewFeed, app.activeView, "? must close the help overlay")
+}
+
+func TestAppHelpOverlay_DismissWithEscAndQ(t *testing.T) {
+	app := NewApp(nil, nil, nil, nil, nil, "all")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	app = asAppModel(t, model)
+
+	// esc closes it.
+	app = pressRune(t, app, '?')
+	require.Equal(t, viewHelp, app.activeView)
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	app = asAppModel(t, model)
+	assert.Equal(t, viewFeed, app.activeView, "esc must dismiss help, not quit")
+
+	// q closes it (and must NOT quit the program while help is open).
+	app = pressRune(t, app, '?')
+	require.Equal(t, viewHelp, app.activeView)
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	app = asAppModel(t, model)
+	assert.Equal(t, viewFeed, app.activeView, "q must dismiss help")
+	assert.Nil(t, cmd, "q while help is open must not issue tea.Quit")
+}
+
+func TestAppSearchKey_OpensFilterOverlayInExplorer(t *testing.T) {
+	app := NewApp(nil, nil, nil, nil, nil, "all")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	app = asAppModel(t, model)
+
+	// Switch to the explorer.
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	app = asAppModel(t, model)
+	require.Equal(t, viewExplorer, app.activeView)
+
+	// '/' opens the filter overlay (search by keyword).
+	app = pressRune(t, app, '/')
+	assert.Equal(t, viewFilter, app.activeView, "/ must open the filter overlay in the explorer")
+	require.NotNil(t, app.filter)
+	assert.Equal(t, filterFieldKeyword, app.filter.activeField,
+		"/ should focus the keyword field")
+}
+
+func TestAppSearchKey_IgnoredInFeed(t *testing.T) {
+	app := NewApp(nil, nil, nil, nil, nil, "all")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	app = asAppModel(t, model)
+
+	// '/' in the feed must not open the filter overlay (explorer-only).
+	app = pressRune(t, app, '/')
+	assert.Equal(t, viewFeed, app.activeView, "/ is explorer-only; feed must ignore it")
 }
