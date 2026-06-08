@@ -83,7 +83,7 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer store.Close()
+	defer closeStore(store)
 
 	// Create scoring engine.
 	scorer := scoring.NewEngine()
@@ -143,7 +143,9 @@ func runHeadless(
 	enrichResultChan := make(chan enrichment.EnrichResult, 256)
 	enricher := enrichment.NewEnricher(store, enrichResultChan)
 	go func() {
-		_ = enricher.Run(ctx)
+		if err := enricher.Run(ctx); err != nil {
+			slog.Debug("enrichment pipeline stopped", "error", err)
+		}
 	}()
 
 	// Drain hit channel, enqueuing each domain for enrichment.
@@ -206,30 +208,15 @@ func runTUI(
 	enrichResultChan := make(chan enrichment.EnrichResult, 256)
 	enricher := enrichment.NewEnricher(store, enrichResultChan)
 	go func() {
-		_ = enricher.Run(ctx)
+		if err := enricher.Run(ctx); err != nil {
+			slog.Debug("enrichment pipeline stopped", "error", err)
+		}
 	}()
 
 	// Tap the hit channel: read each hit, forward it to the TUI channel,
 	// and enqueue the domain for enrichment.
 	tuiHitChan := make(chan domain.Hit, 256)
-	go func() {
-		defer close(tuiHitChan)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case hit, ok := <-hitChan:
-				if !ok {
-					return
-				}
-				enricher.Enqueue(hit.Domain)
-				select {
-				case tuiHitChan <- hit:
-				default:
-				}
-			}
-		}
-	}()
+	go tapHits(ctx, hitChan, tuiHitChan, enricher)
 
 	// Create TUI app with tapped hit channel, enrichment channel, and discard channel.
 	app := tui.NewApp(store, tuiHitChan, tuiStatsChan, enrichResultChan, discardChan, profileName)
@@ -252,6 +239,28 @@ func runTUI(
 
 	slog.Info("watch command shutdown complete")
 	return nil
+}
+
+// tapHits forwards hits from src to dst (for the TUI) while enqueuing each
+// domain for enrichment. It closes dst when src closes or the context is done.
+// Forwarding to dst never blocks: a full dst buffer drops the TUI copy.
+func tapHits(ctx context.Context, src <-chan domain.Hit, dst chan<- domain.Hit, enricher *enrichment.Enricher) {
+	defer close(dst)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case hit, ok := <-src:
+			if !ok {
+				return
+			}
+			enricher.Enqueue(hit.Domain)
+			select {
+			case dst <- hit:
+			default:
+			}
+		}
+	}
 }
 
 // bridgePollerStats aggregates per-log poller.PollStats into tui.PollStats

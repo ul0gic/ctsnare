@@ -2,6 +2,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -23,9 +24,13 @@ type DB struct {
 // NewDB opens (or creates) a SQLite database at the given path, enables WAL
 // mode for concurrent access, and runs the schema migration. Parent
 // directories are created if they do not exist.
-func NewDB(dbPath string) (*DB, error) {
+func NewDB(dbPath string) (_ *DB, err error) {
+	// One-shot startup setup runs against a background context; the caller's
+	// request context is not yet available at construction time.
+	ctx := context.Background()
+
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating database directory %s: %w", dir, err)
 	}
 
@@ -33,60 +38,72 @@ func NewDB(dbPath string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening database %s: %w", dbPath, err)
 	}
+	// Close the connection if any setup step below fails. The close error is
+	// intentionally subordinate to the primary setup error.
+	defer func() {
+		if err != nil {
+			_ = sqlDB.Close()
+		}
+	}()
 
-	// Enable WAL mode for crash safety and concurrent read/write.
-	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("enabling WAL mode: %w", err)
-	}
-
-	// Set busy timeout so concurrent writers wait for locks instead of
-	// immediately returning SQLITE_BUSY. Without this, poller goroutines
-	// silently drop hits when write contention occurs.
-	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("setting busy timeout: %w", err)
-	}
-
-	// Enable foreign key enforcement.
-	if _, err := sqlDB.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("enabling foreign keys: %w", err)
+	if err = applyPragmas(ctx, sqlDB); err != nil {
+		return nil, err
 	}
 
 	// Run schema creation.
-	if _, err := sqlDB.Exec(schemaSQL); err != nil {
-		sqlDB.Close()
+	if _, err = sqlDB.ExecContext(ctx, schemaSQL); err != nil {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
 
-	// Run V2 migration (enrichment + bookmark columns). Each ALTER TABLE
-	// statement is executed individually so that already-existing columns
-	// are silently skipped (idempotent).
-	if err := runMigrationV2(sqlDB); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("running V2 migration: %w", err)
-	}
-
-	// Run V3 migration (base_domain column for subdomain grouping).
-	if err := runMigrationV3(sqlDB); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("running V3 migration: %w", err)
-	}
-
-	// Backfill base_domain for any rows where it is still empty.
-	if err := backfillBaseDomain(sqlDB); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("backfilling base_domain: %w", err)
+	if err = runMigrations(ctx, sqlDB); err != nil {
+		return nil, err
 	}
 
 	return &DB{db: sqlDB}, nil
 }
 
+// applyPragmas configures the per-connection SQLite settings: WAL mode for
+// concurrent access, a busy timeout so writers wait for locks instead of
+// failing with SQLITE_BUSY, and foreign-key enforcement.
+func applyPragmas(ctx context.Context, sqlDB *sql.DB) error {
+	pragmas := []struct {
+		stmt string
+		desc string
+	}{
+		{"PRAGMA journal_mode=WAL", "enabling WAL mode"},
+		{"PRAGMA busy_timeout=5000", "setting busy timeout"},
+		{"PRAGMA foreign_keys=ON", "enabling foreign keys"},
+	}
+	for _, p := range pragmas {
+		if _, err := sqlDB.ExecContext(ctx, p.stmt); err != nil {
+			return fmt.Errorf("%s: %w", p.desc, err)
+		}
+	}
+	return nil
+}
+
+// runMigrations applies the V2 and V3 schema migrations and backfills the
+// base_domain column. All steps are idempotent and safe to re-run.
+func runMigrations(ctx context.Context, sqlDB *sql.DB) error {
+	// V2 migration (enrichment + bookmark columns).
+	if err := runMigrationV2(ctx, sqlDB); err != nil {
+		return fmt.Errorf("running V2 migration: %w", err)
+	}
+	// V3 migration (base_domain column for subdomain grouping).
+	if err := runMigrationV3(ctx, sqlDB); err != nil {
+		return fmt.Errorf("running V3 migration: %w", err)
+	}
+	// Backfill base_domain for any rows where it is still empty.
+	if err := backfillBaseDomain(ctx, sqlDB); err != nil {
+		return fmt.Errorf("backfilling base_domain: %w", err)
+	}
+	return nil
+}
+
 // runMigrationV2 adds enrichment and bookmark columns to the hits table.
 // Each ALTER TABLE is run individually; "duplicate column name" errors
 // are silently ignored so the migration is idempotent.
-func runMigrationV2(sqlDB *sql.DB) error {
+func runMigrationV2(ctx context.Context, sqlDB *sql.DB) error {
 	// Execute each ALTER TABLE statement individually.
 	stmts := strings.Split(migrationV2SQL, ";")
 	for _, stmt := range stmts {
@@ -94,7 +111,7 @@ func runMigrationV2(sqlDB *sql.DB) error {
 		if stmt == "" {
 			continue
 		}
-		if _, err := sqlDB.Exec(stmt); err != nil {
+		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil {
 			// SQLite returns "duplicate column name: X" when the column already exists.
 			// This is expected on subsequent runs -- skip silently.
 			if strings.Contains(err.Error(), "duplicate column name") {
@@ -105,7 +122,7 @@ func runMigrationV2(sqlDB *sql.DB) error {
 	}
 
 	// Create indexes (IF NOT EXISTS makes these naturally idempotent).
-	if _, err := sqlDB.Exec(migrationV2IndexSQL); err != nil {
+	if _, err := sqlDB.ExecContext(ctx, migrationV2IndexSQL); err != nil {
 		return fmt.Errorf("creating V2 indexes: %w", err)
 	}
 	return nil
@@ -114,14 +131,14 @@ func runMigrationV2(sqlDB *sql.DB) error {
 // runMigrationV3 adds the base_domain column for subdomain grouping.
 // The ALTER TABLE is run individually; "duplicate column name" errors
 // are silently ignored so the migration is idempotent.
-func runMigrationV3(sqlDB *sql.DB) error {
+func runMigrationV3(ctx context.Context, sqlDB *sql.DB) error {
 	stmts := strings.Split(migrationV3SQL, ";")
 	for _, stmt := range stmts {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
 		}
-		if _, err := sqlDB.Exec(stmt); err != nil {
+		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {
 				continue
 			}
@@ -129,58 +146,71 @@ func runMigrationV3(sqlDB *sql.DB) error {
 		}
 	}
 
-	if _, err := sqlDB.Exec(migrationV3IndexSQL); err != nil {
+	if _, err := sqlDB.ExecContext(ctx, migrationV3IndexSQL); err != nil {
 		return fmt.Errorf("creating V3 indexes: %w", err)
 	}
 	return nil
 }
 
+// baseDomainUpdate pairs a stored domain with its computed base domain.
+type baseDomainUpdate struct {
+	domain     string
+	baseDomain string
+}
+
 // backfillBaseDomain reads all rows with an empty base_domain and computes
 // the base domain from the domain column. This runs on first startup after
 // upgrading to the V3 schema and is a no-op on subsequent startups.
-func backfillBaseDomain(sqlDB *sql.DB) error {
-	rows, err := sqlDB.Query("SELECT domain FROM hits WHERE base_domain = '' OR base_domain IS NULL")
+func backfillBaseDomain(ctx context.Context, sqlDB *sql.DB) error {
+	updates, err := collectBackfillUpdates(ctx, sqlDB)
 	if err != nil {
-		return fmt.Errorf("querying rows for backfill: %w", err)
+		return err
 	}
-	defer rows.Close()
-
-	type update struct {
-		domain     string
-		baseDomain string
-	}
-	var updates []update
-
-	for rows.Next() {
-		var d string
-		if err := rows.Scan(&d); err != nil {
-			return fmt.Errorf("scanning domain for backfill: %w", err)
-		}
-		bd := domainutil.BaseDomain(d)
-		updates = append(updates, update{domain: d, baseDomain: bd})
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterating backfill rows: %w", err)
-	}
-
 	if len(updates) == 0 {
 		return nil
 	}
+	return applyBackfillUpdates(ctx, sqlDB, updates)
+}
 
-	tx, err := sqlDB.Begin()
+// collectBackfillUpdates loads every row missing a base_domain and computes the
+// base domain for each.
+func collectBackfillUpdates(ctx context.Context, sqlDB *sql.DB) ([]baseDomainUpdate, error) {
+	rows, err := sqlDB.QueryContext(ctx, "SELECT domain FROM hits WHERE base_domain = '' OR base_domain IS NULL")
+	if err != nil {
+		return nil, fmt.Errorf("querying rows for backfill: %w", err)
+	}
+	defer rows.Close()
+
+	var updates []baseDomainUpdate
+	for rows.Next() {
+		var d string
+		if err = rows.Scan(&d); err != nil {
+			return nil, fmt.Errorf("scanning domain for backfill: %w", err)
+		}
+		updates = append(updates, baseDomainUpdate{domain: d, baseDomain: domainutil.BaseDomain(d)})
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating backfill rows: %w", err)
+	}
+	return updates, nil
+}
+
+// applyBackfillUpdates writes the computed base domains in a single transaction.
+func applyBackfillUpdates(ctx context.Context, sqlDB *sql.DB, updates []baseDomainUpdate) error {
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning backfill transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback after commit is a no-op
 
-	stmt, err := tx.Prepare("UPDATE hits SET base_domain = ? WHERE domain = ?")
+	stmt, err := tx.PrepareContext(ctx, "UPDATE hits SET base_domain = ? WHERE domain = ?")
 	if err != nil {
 		return fmt.Errorf("preparing backfill statement: %w", err)
 	}
 	defer stmt.Close() //nolint:errcheck // closing prepared statement in deferred cleanup
 
 	for _, u := range updates {
-		if _, err := stmt.Exec(u.baseDomain, u.domain); err != nil {
+		if _, err := stmt.ExecContext(ctx, u.baseDomain, u.domain); err != nil {
 			return fmt.Errorf("backfilling base_domain for %s: %w", u.domain, err)
 		}
 	}

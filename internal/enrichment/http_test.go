@@ -22,7 +22,7 @@ func TestProbeLiveness_LiveHTTPSServer(t *testing.T) {
 
 	// Use the raw server listener address (host:port).
 	addr := server.Listener.Addr().String()
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 
 	require.NoError(t, err)
 	assert.True(t, isLive, "TLS test server should be detected as live")
@@ -40,7 +40,7 @@ func TestProbeLiveness_HTTPFallback(t *testing.T) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	addr := server.Listener.Addr().String()
 
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.True(t, isLive, "HTTP-only server should still be detected as live via fallback")
 	assert.Equal(t, http.StatusOK, statusCode)
@@ -50,7 +50,7 @@ func TestProbeLiveness_NoServer(t *testing.T) {
 	// Use an address where nothing is listening.
 	client := &http.Client{Timeout: 1 * time.Second}
 
-	statusCode, isLive, err := ProbeLiveness(client, "127.0.0.1:1")
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, "127.0.0.1:1")
 	assert.Error(t, err, "probe should fail when no server is running")
 	assert.False(t, isLive)
 	assert.Equal(t, 0, statusCode)
@@ -65,7 +65,7 @@ func TestProbeLiveness_ServerReturns4xx(t *testing.T) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	addr := server.Listener.Addr().String()
 
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.True(t, isLive, "4xx response still means the server is live")
 	assert.Equal(t, http.StatusForbidden, statusCode)
@@ -80,7 +80,7 @@ func TestProbeLiveness_ServerReturns5xx(t *testing.T) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	addr := server.Listener.Addr().String()
 
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.True(t, isLive, "5xx response still means the server is live")
 	assert.Equal(t, http.StatusInternalServerError, statusCode)
@@ -109,7 +109,7 @@ func TestProbeLiveness_Redirects(t *testing.T) {
 	}
 	addr := server.Listener.Addr().String()
 
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.True(t, isLive, "server that redirects should still be detected as live")
 	assert.Equal(t, http.StatusOK, statusCode)
@@ -127,7 +127,7 @@ func TestProbeLiveness_Timeout(t *testing.T) {
 	addr := server.Listener.Addr().String()
 
 	start := time.Now()
-	statusCode, isLive, err := ProbeLiveness(client, addr)
+	statusCode, isLive, err := ProbeLiveness(t.Context(), client, addr)
 	elapsed := time.Since(start)
 
 	assert.Error(t, err, "slow server should cause timeout error")
@@ -147,7 +147,7 @@ func TestProbeLiveness_HEADMethod(t *testing.T) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	addr := server.Listener.Addr().String()
 
-	_, _, err := ProbeLiveness(client, addr)
+	_, _, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodHead, receivedMethod, "ProbeLiveness should use HEAD method")
 }
@@ -163,7 +163,7 @@ func TestProbeLiveness_UserAgent(t *testing.T) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	addr := server.Listener.Addr().String()
 
-	_, _, err := ProbeLiveness(client, addr)
+	_, _, err := ProbeLiveness(t.Context(), client, addr)
 	require.NoError(t, err)
 	assert.Equal(t, userAgent, receivedUA, "ProbeLiveness should send the configured User-Agent header")
 }
@@ -175,13 +175,13 @@ func TestDoHEAD_ValidURL(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{Timeout: 3 * time.Second}
-	code, err := doHEAD(client, server.URL)
+	code, err := doHEAD(t.Context(), client, server.URL)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusTeapot, code)
 }
 
 func TestDoHEAD_InvalidURL(t *testing.T) {
 	client := &http.Client{Timeout: 1 * time.Second}
-	_, err := doHEAD(client, "://invalid-url")
+	_, err := doHEAD(t.Context(), client, "://invalid-url")
 	assert.Error(t, err, "invalid URL should produce an error")
 }

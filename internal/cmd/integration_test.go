@@ -112,6 +112,7 @@ func setupTestDB(t *testing.T) (string, *storage.DB) {
 	dbFile := filepath.Join(t.TempDir(), "test.db")
 	store, err := storage.NewDB(dbFile)
 	require.NoError(t, err)
+	t.Cleanup(func() { store.Close() })
 
 	ctx := context.Background()
 	for _, hit := range testHits() {
@@ -142,8 +143,7 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 func TestQueryCommandWithPrePopulatedDB(t *testing.T) {
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	tests := []struct {
 		name     string
@@ -222,8 +222,7 @@ func TestQueryCommandWithPrePopulatedDB(t *testing.T) {
 
 func TestDBStatsWithKnownData(t *testing.T) {
 	resetFlags()
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"db", "stats", "--db", dbFile})
@@ -240,8 +239,7 @@ func TestDBStatsWithKnownData(t *testing.T) {
 
 func TestDBClearRequiresConfirm(t *testing.T) {
 	resetFlags()
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	rootCmd.SetArgs([]string{"db", "clear", "--db", dbFile})
 	err := rootCmd.Execute()
@@ -262,7 +260,6 @@ func TestDBClearWithConfirm(t *testing.T) {
 	stats, statsErr := store.Stats(ctx)
 	require.NoError(t, statsErr)
 	assert.Equal(t, 0, stats.TotalHits)
-	store.Close()
 }
 
 func TestDBClearSession(t *testing.T) {
@@ -278,20 +275,18 @@ func TestDBClearSession(t *testing.T) {
 	stats, statsErr := store.Stats(ctx)
 	require.NoError(t, statsErr)
 	assert.Equal(t, 1, stats.TotalHits, "expected 1 hit remaining (other-session)")
-	store.Close()
 }
 
 func TestDBExportJSONL(t *testing.T) {
 	resetFlags()
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	outputFile := filepath.Join(t.TempDir(), "export.jsonl")
 	rootCmd.SetArgs([]string{"db", "export", "--db", dbFile, "--format", "jsonl", "--output", outputFile})
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
 
-	data, readErr := os.ReadFile(outputFile)
+	data, readErr := os.ReadFile(outputFile) //nolint:gosec // outputFile is a test-controlled temp path
 	require.NoError(t, readErr)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	assert.Len(t, lines, 4, "expected 4 JSONL lines for 4 hits")
@@ -299,15 +294,14 @@ func TestDBExportJSONL(t *testing.T) {
 
 func TestDBExportCSV(t *testing.T) {
 	resetFlags()
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	outputFile := filepath.Join(t.TempDir(), "export.csv")
 	rootCmd.SetArgs([]string{"db", "export", "--db", dbFile, "--format", "csv", "--output", outputFile})
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
 
-	data, readErr := os.ReadFile(outputFile)
+	data, readErr := os.ReadFile(outputFile) //nolint:gosec // outputFile is a test-controlled temp path
 	require.NoError(t, readErr)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	assert.Len(t, lines, 5, "expected 5 CSV lines: 1 header + 4 data rows")
@@ -379,7 +373,7 @@ func TestRootHelpShowsSubcommands(t *testing.T) {
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"--help"})
-		_ = rootCmd.Execute()
+		assert.NoError(t, rootCmd.Execute())
 	})
 
 	assert.Contains(t, output, "watch")
@@ -412,8 +406,6 @@ func TestBookmarkWorkflow(t *testing.T) {
 	assert.NotContains(t, output, "secure-paypal-login.top")
 	assert.NotContains(t, output, "mywalletcrypto.com")
 	assert.NotContains(t, output, "free-token-claim.buzz")
-
-	store.Close()
 }
 
 func TestDeleteWorkflow(t *testing.T) {
@@ -437,8 +429,6 @@ func TestDeleteWorkflow(t *testing.T) {
 	assert.Contains(t, output, "fake-bitcoin-exchange.xyz")
 	assert.Contains(t, output, "secure-paypal-login.top")
 	assert.Contains(t, output, "mywalletcrypto.com")
-
-	store.Close()
 }
 
 func TestEnrichmentFieldsInQueryJSON(t *testing.T) {
@@ -471,8 +461,6 @@ func TestEnrichmentFieldsInQueryJSON(t *testing.T) {
 	assert.Contains(t, output, "5.6.7.8")
 	assert.Contains(t, output, "Cloudflare")
 	assert.Contains(t, output, `"HTTPStatus":200`)
-
-	store.Close()
 }
 
 func TestQueryLiveOnlyFlag(t *testing.T) {
@@ -503,8 +491,6 @@ func TestQueryLiveOnlyFlag(t *testing.T) {
 	assert.NotContains(t, output, "fake-bitcoin-exchange.xyz")
 	assert.NotContains(t, output, "mywalletcrypto.com")
 	assert.NotContains(t, output, "free-token-claim.buzz")
-
-	store.Close()
 }
 
 func TestQueryBookmarkedAndLiveOnlyCompose(t *testing.T) {
@@ -536,8 +522,6 @@ func TestQueryBookmarkedAndLiveOnlyCompose(t *testing.T) {
 	assert.Contains(t, output, "secure-paypal-login.top")
 	assert.NotContains(t, output, "fake-bitcoin-exchange.xyz")
 	assert.NotContains(t, output, "mywalletcrypto.com")
-
-	store.Close()
 }
 
 func TestDBExportJSONLIncludesEnrichmentFields(t *testing.T) {
@@ -562,7 +546,7 @@ func TestDBExportJSONLIncludesEnrichmentFields(t *testing.T) {
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
 
-	data, readErr := os.ReadFile(outputFile)
+	data, readErr := os.ReadFile(outputFile) //nolint:gosec // outputFile is a test-controlled temp path
 	require.NoError(t, readErr)
 	content := string(data)
 
@@ -572,21 +556,18 @@ func TestDBExportJSONLIncludesEnrichmentFields(t *testing.T) {
 	assert.Contains(t, content, "1.2.3.4")
 	assert.Contains(t, content, "Cloudflare")
 	assert.Contains(t, content, `"HTTPStatus":200`)
-
-	store.Close()
 }
 
 func TestDBExportCSVIncludesEnrichmentColumnHeaders(t *testing.T) {
 	resetFlags()
-	dbFile, store := setupTestDB(t)
-	defer store.Close()
+	dbFile, _ := setupTestDB(t)
 
 	outputFile := filepath.Join(t.TempDir(), "export.csv")
 	rootCmd.SetArgs([]string{"db", "export", "--db", dbFile, "--format", "csv", "--output", outputFile})
 	err := rootCmd.Execute()
 	assert.NoError(t, err)
 
-	data, readErr := os.ReadFile(outputFile)
+	data, readErr := os.ReadFile(outputFile) //nolint:gosec // outputFile is a test-controlled temp path
 	require.NoError(t, readErr)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	require.NotEmpty(t, lines)
@@ -624,8 +605,6 @@ func TestDeleteHitsBatch(t *testing.T) {
 	assert.NotContains(t, output, "free-token-claim.buzz")
 	assert.Contains(t, output, "secure-paypal-login.top")
 	assert.Contains(t, output, "mywalletcrypto.com")
-
-	store.Close()
 }
 
 // --- Phase 8 Skip Suffix Integration Tests ---
@@ -789,7 +768,7 @@ func TestSkipReset_WithoutConfirm_PrintsWarning(t *testing.T) {
 	os.Stderr = w
 
 	rootCmd.SetArgs([]string{"skip", "reset", "--config", tmpCfg})
-	_ = rootCmd.Execute()
+	assert.NoError(t, rootCmd.Execute())
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -818,7 +797,7 @@ func TestSkipAdd_InvalidDomain_NoDot(t *testing.T) {
 	os.Stderr = w
 
 	rootCmd.SetArgs([]string{"skip", "add", "nodomain", "--config", tmpCfg})
-	_ = rootCmd.Execute()
+	assert.NoError(t, rootCmd.Execute())
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -842,7 +821,7 @@ func TestSkipAdd_InvalidDomain_HasProtocol(t *testing.T) {
 	os.Stderr = w
 
 	rootCmd.SetArgs([]string{"skip", "add", "https://example.com", "--config", tmpCfg})
-	_ = rootCmd.Execute()
+	assert.NoError(t, rootCmd.Execute())
 
 	w.Close()
 	os.Stderr = oldStderr

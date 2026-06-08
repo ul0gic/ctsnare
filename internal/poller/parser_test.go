@@ -19,24 +19,26 @@ import (
 // buildTestLeafInput constructs a valid MerkleTreeLeaf wrapping a DER certificate
 // as an x509_entry (entry_type=0).
 func buildTestLeafInput(certDER []byte) []byte {
-	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2)
-	header := make([]byte, 12)
+	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2),
+	// followed by a 3-byte ASN1Cert length prefix and the DER cert.
+	header := make([]byte, 12, 12+3+len(certDER))
 	header[0] = 0 // version v1
 	header[1] = 0 // timestamped_entry
 	binary.BigEndian.PutUint64(header[2:10], uint64(time.Now().UnixMilli()))
 	binary.BigEndian.PutUint16(header[10:12], 0) // x509_entry
 
-	// ASN1Cert: 3-byte length prefix + DER cert
+	// ASN1Cert: 3-byte length prefix + DER cert. Mask each byte explicitly to
+	// make the 24-bit big-endian truncation intentional.
 	certLen := len(certDER)
 	lenPrefix := []byte{
-		byte(certLen >> 16),
-		byte(certLen >> 8),
-		byte(certLen),
+		byte((certLen >> 16) & 0xFF),
+		byte((certLen >> 8) & 0xFF),
+		byte(certLen & 0xFF),
 	}
 
-	leaf := append(header, lenPrefix...)
-	leaf = append(leaf, certDER...)
-	return leaf
+	header = append(header, lenPrefix...)
+	header = append(header, certDER...)
+	return header
 }
 
 // generateTestCert creates a self-signed test certificate with the given
@@ -64,8 +66,9 @@ func generateTestCert(t *testing.T, cn string, dnsNames []string) []byte {
 // TBSCertificate as a precert_entry (entry_type=1). The PreCert body is:
 // issuer_key_hash (32 bytes) + TBSCertificate opaque<1..2^24-1>.
 func buildPrecertLeafInput(tbsDER []byte) []byte {
-	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2)
-	header := make([]byte, 12)
+	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2),
+	// followed by issuer_key_hash (32) + 3-byte TBS length prefix + TBS DER.
+	header := make([]byte, 12, 12+32+3+len(tbsDER))
 	header[0] = 0 // version v1
 	header[1] = 0 // timestamped_entry
 	binary.BigEndian.PutUint64(header[2:10], uint64(time.Now().UnixMilli()))
@@ -74,18 +77,19 @@ func buildPrecertLeafInput(tbsDER []byte) []byte {
 	// issuer_key_hash: 32 bytes (content is irrelevant to domain extraction).
 	issuerKeyHash := make([]byte, 32)
 
-	// TBSCertificate opaque<1..2^24-1>: 3-byte length prefix + TBS DER.
+	// TBSCertificate opaque<1..2^24-1>: 3-byte length prefix + TBS DER. Mask
+	// each byte explicitly to make the 24-bit big-endian truncation intentional.
 	tbsLen := len(tbsDER)
 	lenPrefix := []byte{
-		byte(tbsLen >> 16),
-		byte(tbsLen >> 8),
-		byte(tbsLen),
+		byte((tbsLen >> 16) & 0xFF),
+		byte((tbsLen >> 8) & 0xFF),
+		byte(tbsLen & 0xFF),
 	}
 
-	leaf := append(header, issuerKeyHash...)
-	leaf = append(leaf, lenPrefix...)
-	leaf = append(leaf, tbsDER...)
-	return leaf
+	header = append(header, issuerKeyHash...)
+	header = append(header, lenPrefix...)
+	header = append(header, tbsDER...)
+	return header
 }
 
 // generateTestTBS creates an ECDSA P-256 certificate and returns its

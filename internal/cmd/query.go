@@ -74,7 +74,7 @@ func runQuery(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer store.Close()
+	defer closeStore(store)
 
 	filter := domain.QueryFilter{
 		Keyword:    queryKeyword,

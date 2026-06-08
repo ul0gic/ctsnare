@@ -75,7 +75,7 @@ func resolveProfile(name string, custom domain.Profile, builtins map[string]doma
 				Keywords:       mergeUnique(base.Keywords, custom.Keywords),
 				SuspiciousTLDs: mergeUnique(base.SuspiciousTLDs, custom.SuspiciousTLDs),
 				SkipSuffixes:   mergeUnique(base.SkipSuffixes, custom.SkipSuffixes),
-				Description:    fmt.Sprintf("Custom profile extending %s", baseName),
+				Description:    "Custom profile extending " + baseName,
 			}
 		}
 	}

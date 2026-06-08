@@ -8,6 +8,16 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
+// asAppModel asserts that a tea.Model is an AppModel, failing the test if not.
+func asAppModel(t *testing.T, m tea.Model) AppModel {
+	t.Helper()
+	app, ok := m.(AppModel)
+	if !ok {
+		t.Fatalf("expected tea.Model to be AppModel, got %T", m)
+	}
+	return app
+}
+
 func TestNewApp(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	if app.activeView != viewFeed {
@@ -19,7 +29,7 @@ func TestAppViewSwitchingTab(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	// Provide window size so sub-models are ready
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if app.activeView != viewFeed {
 		t.Fatalf("expected feed view, got %d", app.activeView)
@@ -27,14 +37,14 @@ func TestAppViewSwitchingTab(t *testing.T) {
 
 	// Press Tab to switch to explorer
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewExplorer {
 		t.Errorf("expected explorer view after tab, got %d", app.activeView)
 	}
 
 	// Press Tab again to switch back to feed
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewFeed {
 		t.Errorf("expected feed view after second tab, got %d", app.activeView)
 	}
@@ -46,7 +56,7 @@ func TestAppHitMsgUpdatesFeed(t *testing.T) {
 
 	// Initialize with window size
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	hit := domain.Hit{
 		Domain:    "evil-phish.example.com",
@@ -58,7 +68,7 @@ func TestAppHitMsgUpdatesFeed(t *testing.T) {
 	}
 
 	model, _ = app.Update(HitMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if len(app.feed.hits) != 1 {
 		t.Errorf("expected 1 hit in feed, got %d", len(app.feed.hits))
@@ -71,7 +81,7 @@ func TestAppHitMsgUpdatesFeed(t *testing.T) {
 func TestAppQuitMessage(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
@@ -88,7 +98,7 @@ func TestAppQuitMessage(t *testing.T) {
 func TestAppShowDetail(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	hit := domain.Hit{
 		Domain:   "test.example.com",
@@ -97,7 +107,7 @@ func TestAppShowDetail(t *testing.T) {
 	}
 
 	model, _ = app.Update(ShowDetailMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if app.activeView != viewDetail {
 		t.Errorf("expected detail view, got %d", app.activeView)
@@ -113,19 +123,19 @@ func TestAppShowDetail(t *testing.T) {
 func TestAppSwitchViewMsg(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Switch to detail first
 	hit := domain.Hit{Domain: "test.com", Score: 3, Severity: domain.SeverityLow}
 	model, _ = app.Update(ShowDetailMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewDetail {
 		t.Fatalf("expected detail view, got %d", app.activeView)
 	}
 
 	// SwitchViewMsg back to explorer should clear detail
 	model, _ = app.Update(SwitchViewMsg{View: viewExplorer})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewExplorer {
 		t.Errorf("expected explorer view, got %d", app.activeView)
 	}
@@ -137,18 +147,18 @@ func TestAppSwitchViewMsg(t *testing.T) {
 func TestAppFilterOverlay(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "all")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Switch to explorer first
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewExplorer {
 		t.Fatalf("expected explorer view, got %d", app.activeView)
 	}
 
 	// Press f to open filter
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewFilter {
 		t.Errorf("expected filter view, got %d", app.activeView)
 	}
@@ -158,7 +168,7 @@ func TestAppFilterOverlay(t *testing.T) {
 
 	// Cancel filter
 	model, _ = app.Update(FilterCancelledMsg{})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 	if app.activeView != viewExplorer {
 		t.Errorf("expected explorer view after cancel, got %d", app.activeView)
 	}
@@ -175,7 +185,7 @@ func TestAppEnrichmentMsg_UpdatesFeedHit(t *testing.T) {
 
 	// Initialize with window size.
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Add a hit to the feed.
 	hit := domain.Hit{
@@ -185,7 +195,7 @@ func TestAppEnrichmentMsg_UpdatesFeedHit(t *testing.T) {
 		Keywords: []string{"phish"},
 	}
 	model, _ = app.Update(HitMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if len(app.feed.hits) != 1 {
 		t.Fatalf("expected 1 hit in feed, got %d", len(app.feed.hits))
@@ -204,7 +214,7 @@ func TestAppEnrichmentMsg_UpdatesFeedHit(t *testing.T) {
 		HTTPStatus:      200,
 	}
 	model, _ = app.Update(enrichMsg)
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Verify the feed hit was updated with enrichment data.
 	feedHit := app.feed.hits[0]
@@ -225,7 +235,7 @@ func TestAppEnrichmentMsg_UpdatesFeedHit(t *testing.T) {
 func TestAppEnrichmentMsg_UpdatesExplorerHit(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Populate the explorer's hits directly.
 	app.explorer.hits = []domain.Hit{
@@ -241,7 +251,7 @@ func TestAppEnrichmentMsg_UpdatesExplorerHit(t *testing.T) {
 		HTTPStatus:      301,
 	}
 	model, _ = app.Update(enrichMsg)
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Explorer hit should be updated.
 	if !app.explorer.hits[0].IsLive {
@@ -258,12 +268,12 @@ func TestAppEnrichmentMsg_UpdatesExplorerHit(t *testing.T) {
 func TestAppEnrichmentMsg_UpdatesDetailView(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Open detail view for a hit.
 	hit := domain.Hit{Domain: "detail-hit.com", Score: 7, Severity: domain.SeverityHigh}
 	model, _ = app.Update(ShowDetailMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if app.activeView != viewDetail {
 		t.Fatalf("expected detail view, got %d", app.activeView)
@@ -281,7 +291,7 @@ func TestAppEnrichmentMsg_UpdatesDetailView(t *testing.T) {
 		HTTPStatus:      200,
 	}
 	model, _ = app.Update(enrichMsg)
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if !app.detail.hit.IsLive {
 		t.Error("detail hit should be live after EnrichmentMsg")
@@ -295,12 +305,12 @@ func TestAppEnrichmentMsg_NonMatchingDomain_NoUpdate(t *testing.T) {
 	hitCh := make(chan domain.Hit, 1)
 	app := NewApp(nil, hitCh, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Add a hit.
 	hit := domain.Hit{Domain: "existing.com", Score: 4, Severity: domain.SeverityMed}
 	model, _ = app.Update(HitMsg{Hit: hit})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Send enrichment for a different domain.
 	enrichMsg := EnrichmentMsg{
@@ -311,7 +321,7 @@ func TestAppEnrichmentMsg_NonMatchingDomain_NoUpdate(t *testing.T) {
 		HTTPStatus:      200,
 	}
 	model, _ = app.Update(enrichMsg)
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Original hit should be unchanged.
 	if app.feed.hits[0].IsLive {
@@ -322,13 +332,13 @@ func TestAppEnrichmentMsg_NonMatchingDomain_NoUpdate(t *testing.T) {
 func TestAppDiscardedDomainMsg_ForwardedToFeed(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	initialDiscardCount := app.feed.discardCount
 
 	// Send a DiscardedDomainMsg.
 	model, _ = app.Update(DiscardedDomainMsg{Domain: "discarded-domain.example.com"})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Feed should have incremented the discard count.
 	if app.feed.discardCount != initialDiscardCount+1 {
@@ -339,12 +349,12 @@ func TestAppDiscardedDomainMsg_ForwardedToFeed(t *testing.T) {
 func TestAppDiscardedDomainMsg_MultipleDiscards(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Send multiple discards.
 	for i := 0; i < 5; i++ {
 		model, _ = app.Update(DiscardedDomainMsg{Domain: "discard.com"})
-		app = model.(AppModel)
+		app = asAppModel(t, model)
 	}
 
 	if app.feed.discardCount != 5 {
@@ -355,7 +365,7 @@ func TestAppDiscardedDomainMsg_MultipleDiscards(t *testing.T) {
 func TestAppBookmarkToggleMsg_RefreshesExplorer(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Populate the explorer with some hits.
 	app.explorer.hits = []domain.Hit{
@@ -365,7 +375,7 @@ func TestAppBookmarkToggleMsg_RefreshesExplorer(t *testing.T) {
 
 	// Send BookmarkToggleMsg.
 	model, _ = app.Update(BookmarkToggleMsg{Domain: "bookmark-test.com", Bookmarked: true})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// The explorer's local hit should be updated.
 	if !app.explorer.hits[0].Bookmarked {
@@ -380,7 +390,7 @@ func TestAppBookmarkToggleMsg_RefreshesExplorer(t *testing.T) {
 func TestAppDeleteHitsMsg_TriggersExplorerReload(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// Populate explorer with some hits.
 	app.explorer.hits = []domain.Hit{
@@ -391,7 +401,7 @@ func TestAppDeleteHitsMsg_TriggersExplorerReload(t *testing.T) {
 
 	// Send DeleteHitsMsg.
 	model, cmd := app.Update(DeleteHitsMsg{Domains: []string{"delete.com"}})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	// After DeleteHitsMsg, the explorer should have cleared selection
 	// and started a reload (indicated by loading=true and a non-nil cmd).
@@ -409,7 +419,7 @@ func TestAppDeleteHitsMsg_TriggersExplorerReload(t *testing.T) {
 func TestAppStatsMsgForwarded(t *testing.T) {
 	app := NewApp(nil, nil, nil, nil, nil, "test")
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	stats := PollStats{
 		CertsScanned: 5000,
@@ -420,7 +430,7 @@ func TestAppStatsMsgForwarded(t *testing.T) {
 	}
 
 	model, _ = app.Update(StatsMsg{Stats: stats})
-	app = model.(AppModel)
+	app = asAppModel(t, model)
 
 	if app.feed.stats.CertsScanned != 5000 {
 		t.Errorf("expected certs scanned 5000, got %d", app.feed.stats.CertsScanned)

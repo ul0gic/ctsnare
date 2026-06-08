@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -20,9 +21,11 @@ const (
 	filterFieldCount
 )
 
-var severityOptions = []string{"", "HIGH", "MED", "LOW"}
-var timeRangeOptions = []string{"", "1h", "6h", "12h", "24h", "7d"}
-var bookmarkedOptions = []string{"", "yes", "no"}
+var (
+	severityOptions   = []string{"", "HIGH", "MED", "LOW"}
+	timeRangeOptions  = []string{"", "1h", "6h", "12h", "24h", "7d"}
+	bookmarkedOptions = []string{"", "yes", "no"}
+)
 
 // FilterAppliedMsg is sent when the user applies filter settings.
 type FilterAppliedMsg struct {
@@ -105,72 +108,8 @@ func (m FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			return m, func() tea.Msg { return FilterCancelledMsg{} }
-
-		case "enter":
-			return m, func() tea.Msg {
-				return FilterAppliedMsg{Filter: m.buildFilter()}
-			}
-
-		case "tab", "down":
-			m.inputs[m.activeField].Blur()
-			m.activeField = (m.activeField + 1) % filterFieldCount
-			return m, m.inputs[m.activeField].Focus()
-
-		case "shift+tab", "up":
-			m.inputs[m.activeField].Blur()
-			m.activeField = (m.activeField - 1 + filterFieldCount) % filterFieldCount
-			return m, m.inputs[m.activeField].Focus()
-
-		case "ctrl+l":
-			for i := range m.inputs {
-				m.inputs[i].Reset()
-			}
-			m.severityIdx = 0
-			m.timeRangeIdx = 0
-			m.bookmarkedIdx = 0
-			return m, nil
-		}
-
-		if m.activeField == filterFieldSeverity {
-			if msg.String() == "left" || msg.String() == "h" {
-				m.severityIdx = (m.severityIdx - 1 + len(severityOptions)) % len(severityOptions)
-				m.inputs[filterFieldSeverity].SetValue(severityOptions[m.severityIdx])
-				return m, nil
-			}
-			if msg.String() == "right" || msg.String() == "l" {
-				m.severityIdx = (m.severityIdx + 1) % len(severityOptions)
-				m.inputs[filterFieldSeverity].SetValue(severityOptions[m.severityIdx])
-				return m, nil
-			}
-		}
-
-		if m.activeField == filterFieldTimeRange {
-			if msg.String() == "left" || msg.String() == "h" {
-				m.timeRangeIdx = (m.timeRangeIdx - 1 + len(timeRangeOptions)) % len(timeRangeOptions)
-				m.inputs[filterFieldTimeRange].SetValue(timeRangeOptions[m.timeRangeIdx])
-				return m, nil
-			}
-			if msg.String() == "right" || msg.String() == "l" {
-				m.timeRangeIdx = (m.timeRangeIdx + 1) % len(timeRangeOptions)
-				m.inputs[filterFieldTimeRange].SetValue(timeRangeOptions[m.timeRangeIdx])
-				return m, nil
-			}
-		}
-
-		if m.activeField == filterFieldBookmarked {
-			if msg.String() == "left" || msg.String() == "h" {
-				m.bookmarkedIdx = (m.bookmarkedIdx - 1 + len(bookmarkedOptions)) % len(bookmarkedOptions)
-				m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
-				return m, nil
-			}
-			if msg.String() == "right" || msg.String() == "l" {
-				m.bookmarkedIdx = (m.bookmarkedIdx + 1) % len(bookmarkedOptions)
-				m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
-				return m, nil
-			}
+		if handled, model, cmd := m.handleKey(msg); handled {
+			return model, cmd
 		}
 	}
 
@@ -179,14 +118,87 @@ func (m FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
 	return m, cmd
 }
 
+// handleKey processes the filter overlay's key bindings. It returns
+// handled=false when the key should fall through to the active text input.
+func (m FilterModel) handleKey(msg tea.KeyMsg) (handled bool, model FilterModel, cmd tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		return true, m, func() tea.Msg { return FilterCancelledMsg{} }
+
+	case "enter":
+		return true, m, func() tea.Msg { return FilterAppliedMsg{Filter: m.buildFilter()} }
+
+	case "tab", "down":
+		m.inputs[m.activeField].Blur()
+		m.activeField = (m.activeField + 1) % filterFieldCount
+		return true, m, m.inputs[m.activeField].Focus()
+
+	case "shift+tab", "up":
+		m.inputs[m.activeField].Blur()
+		m.activeField = (m.activeField - 1 + filterFieldCount) % filterFieldCount
+		return true, m, m.inputs[m.activeField].Focus()
+
+	case "ctrl+l":
+		for i := range m.inputs {
+			m.inputs[i].Reset()
+		}
+		m.severityIdx = 0
+		m.timeRangeIdx = 0
+		m.bookmarkedIdx = 0
+		return true, m, nil
+	}
+
+	if m.handleOptionCycle(msg.String()) {
+		return true, m, nil
+	}
+	return false, m, nil
+}
+
+// handleOptionCycle advances the option-style field under focus (severity,
+// time range, bookmarked) in response to left/right/h/l. It returns true when
+// the key cycled an option, false otherwise.
+func (m *FilterModel) handleOptionCycle(key string) bool {
+	var delta int
+	switch key {
+	case "left", "h":
+		delta = -1
+	case "right", "l":
+		delta = 1
+	default:
+		return false
+	}
+
+	switch m.activeField {
+	case filterFieldSeverity:
+		m.severityIdx = wrapIndex(m.severityIdx, delta, len(severityOptions))
+		m.inputs[filterFieldSeverity].SetValue(severityOptions[m.severityIdx])
+	case filterFieldTimeRange:
+		m.timeRangeIdx = wrapIndex(m.timeRangeIdx, delta, len(timeRangeOptions))
+		m.inputs[filterFieldTimeRange].SetValue(timeRangeOptions[m.timeRangeIdx])
+	case filterFieldBookmarked:
+		m.bookmarkedIdx = wrapIndex(m.bookmarkedIdx, delta, len(bookmarkedOptions))
+		m.inputs[filterFieldBookmarked].SetValue(bookmarkedOptions[m.bookmarkedIdx])
+	default:
+		return false
+	}
+	return true
+}
+
+// wrapIndex advances idx by delta within [0, n), wrapping around either end.
+func wrapIndex(idx, delta, n int) int {
+	return (idx + delta + n) % n
+}
+
 // View renders the filter overlay as a string.
 func (m FilterModel) View() string {
 	title := StyleTitle.Render("Filter Hits")
 
 	var fields string
+	var fieldsSb187 strings.Builder
 	for _, input := range m.inputs {
-		fields += input.View() + "\n"
+		fieldsSb187.WriteString(input.View() + "\n")
 	}
+	fields += fieldsSb187.String()
 
 	help := StyleHelpKey.Render("enter") + StyleHelpDesc.Render(" apply") + "  " +
 		StyleHelpKey.Render("esc") + StyleHelpDesc.Render(" cancel") + "  " +

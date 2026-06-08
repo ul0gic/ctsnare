@@ -119,7 +119,7 @@ func (e *Enricher) probe(ctx context.Context, domainName string) {
 	result := EnrichResult{Domain: domainName}
 
 	// DNS resolution.
-	ips, provider, err := ResolveDomain(domainName)
+	ips, provider, err := ResolveDomain(ctx, domainName)
 	if err != nil {
 		slog.Debug("DNS resolution failed", "domain", domainName, "error", err)
 	}
@@ -127,7 +127,7 @@ func (e *Enricher) probe(ctx context.Context, domainName string) {
 	result.HostingProvider = provider
 
 	// HTTP liveness probe.
-	statusCode, isLive, err := ProbeLiveness(e.httpClient, domainName)
+	statusCode, isLive, err := ProbeLiveness(ctx, e.httpClient, domainName)
 	if err != nil {
 		slog.Debug("HTTP probe failed", "domain", domainName, "error", err)
 	}

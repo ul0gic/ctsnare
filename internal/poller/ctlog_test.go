@@ -54,7 +54,7 @@ func TestGetEntries_ReturnsEntries(t *testing.T) {
 
 func TestGetSTH_RateLimitingTriggersBackoff(t *testing.T) {
 	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempt := attempts.Add(1)
 		if attempt <= 2 {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -73,7 +73,7 @@ func TestGetSTH_RateLimitingTriggersBackoff(t *testing.T) {
 }
 
 func TestGetSTH_Non200ReturnsError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -85,7 +85,7 @@ func TestGetSTH_Non200ReturnsError(t *testing.T) {
 }
 
 func TestGetSTH_InvalidJSONReturnsError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{invalid json}`)
 	}))
@@ -98,7 +98,7 @@ func TestGetSTH_InvalidJSONReturnsError(t *testing.T) {
 }
 
 func TestGetSTH_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		// Simulate slow response -- context should cancel first.
 		<-r.Context().Done()
 	}))
@@ -113,7 +113,7 @@ func TestGetSTH_ContextCancellation(t *testing.T) {
 }
 
 func TestGetEntries_InvalidBase64Skipped(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"entries": [{"leaf_input": "not-valid-base64!!!", "extra_data": "AAAA"}]}`)
 	}))

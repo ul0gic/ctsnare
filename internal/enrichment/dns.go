@@ -71,8 +71,8 @@ var reverseDNSPatterns = map[string]string{
 // hosting provider via CIDR range matching or reverse DNS. Returns the
 // resolved IP addresses, detected provider name ("unknown" if undetected),
 // and any error from the resolution.
-func ResolveDomain(domainName string) (ips []string, provider string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+func ResolveDomain(ctx context.Context, domainName string) (ips []string, provider string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
 	addrs, err := net.DefaultResolver.LookupHost(ctx, domainName)

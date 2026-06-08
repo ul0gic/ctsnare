@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -108,51 +109,10 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		// Layout: tabBar(3) + panel top border(1) + table header+border(2) + panel bottom border(1) + helpBar(1) = 8 lines chrome
-		tableHeight := m.height - 8
-		if tableHeight < 3 {
-			tableHeight = 3
-		}
-		// Table width fits inside the panel borders (2 chars for left+right).
-		m.table.SetWidth(m.width - 2)
-		m.table.SetHeight(tableHeight)
-		m.ready = true
-		return m, nil
+		return m.resize(msg), nil
 
 	case HitsLoadedMsg:
-		// Filter out recently deleted domains so the poller can't re-insert them visually.
-		filtered := make([]domain.Hit, 0, len(msg.Hits))
-		for _, h := range msg.Hits {
-			if !m.deletedSet[h.Domain] {
-				filtered = append(filtered, h)
-			}
-		}
-
-		if m.keepSelection {
-			// Remap selection by domain identity across reloads (e.g. sort change).
-			oldDomains := make(map[string]bool, len(m.selected))
-			for idx := range m.selected {
-				if idx < len(m.hits) {
-					oldDomains[m.hits[idx].Domain] = true
-				}
-			}
-			m.hits = filtered
-			m.selected = make(map[int]bool)
-			for i, h := range m.hits {
-				if oldDomains[h.Domain] {
-					m.selected[i] = true
-				}
-			}
-			m.keepSelection = false
-		} else {
-			m.hits = filtered
-			m.selected = make(map[int]bool)
-		}
-		m.loading = false
-		m.table.SetRows(m.hitsToRows())
-		return m, nil
+		return m.handleHitsLoaded(msg), nil
 
 	case DeleteHitsMsg:
 		// Hits were deleted -- reload.
@@ -161,119 +121,216 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		return m, m.loadHitsCmd()
 
 	case deleteStatusMsg:
-		if msg.Success {
-			m.statusText = fmt.Sprintf("Deleted %d hit(s)", msg.Count)
-		} else {
-			m.statusText = fmt.Sprintf("Delete failed: %v", msg.Err)
-		}
-		return m, nil
+		return m.applyDeleteStatus(msg), nil
 
 	case BookmarkToggleMsg:
-		// Update the local hit's bookmark state and refresh the row.
-		for i := range m.hits {
-			if m.hits[i].Domain == msg.Domain {
-				m.hits[i].Bookmarked = msg.Bookmarked
-				break
-			}
-		}
-		m.table.SetRows(m.hitsToRows())
-		return m, nil
+		return m.applyBookmarkToggle(msg), nil
 
 	case tea.KeyMsg:
-		// Handle confirmation overlay first.
-		if m.confirmAction != "" {
-			return m.handleConfirm(msg)
-		}
-
-		// Clear status message on any key press.
-		m.statusText = ""
-
-		switch {
-		case msg.String() == "s":
-			m.sortCol = (m.sortCol + 1) % len(sortColumns)
-			m.filter.SortBy = sortColumns[m.sortCol]
-			if m.sortDir == "DESC" {
-				m.sortDir = "ASC"
-			} else {
-				m.sortDir = "DESC"
-			}
-			m.filter.SortDir = m.sortDir
-			m.loading = true
-			m.keepSelection = true
-			return m, m.loadHitsCmd()
-
-		case msg.String() == "enter":
-			row := m.table.Cursor()
-			if row >= 0 && row < len(m.hits) {
-				return m, func() tea.Msg {
-					return ShowDetailMsg{Hit: m.hits[row]}
-				}
-			}
-
-		case msg.String() == "r":
-			// Explicit reload clears the deleted set and status.
-			m.deletedSet = make(map[string]bool)
-			m.statusText = ""
-			m.loading = true
-			return m, m.loadHitsCmd()
-
-		case msg.String() == " ": // space -- toggle select
-			row := m.table.Cursor()
-			if row >= 0 && row < len(m.hits) {
-				if m.selected[row] {
-					delete(m.selected, row)
-				} else {
-					m.selected[row] = true
-				}
-				m.table.SetRows(m.hitsToRows())
-				// Move cursor down one row.
-				m.table, cmd = m.table.Update(tea.KeyMsg{Type: tea.KeyDown})
-			}
-			return m, cmd
-
-		case msg.String() == "a": // select all visible
-			for i := range m.hits {
-				m.selected[i] = true
-			}
-			m.table.SetRows(m.hitsToRows())
-			return m, nil
-
-		case msg.String() == "A": // deselect all
-			m.selected = make(map[int]bool)
-			m.table.SetRows(m.hitsToRows())
-			return m, nil
-
-		case msg.String() == "d": // delete single
-			row := m.table.Cursor()
-			if row >= 0 && row < len(m.hits) {
-				m.confirmAction = "delete-single"
-				m.confirmDomain = m.hits[row].Domain
-			}
-			return m, nil
-
-		case msg.String() == "D": // delete selected batch
-			if len(m.selected) > 0 {
-				m.confirmAction = "delete-batch"
-			}
-			return m, nil
-
-		case msg.String() == "C": // clear all
-			m.confirmAction = "clear-all"
-			return m, nil
-
-		case msg.String() == "b": // bookmark toggle
-			row := m.table.Cursor()
-			if row >= 0 && row < len(m.hits) {
-				return m, m.bookmarkToggleCmd(row)
-			}
-			return m, nil
-		}
-
-		m.table, cmd = m.table.Update(msg)
-		return m, cmd
+		return m.handleKey(msg)
 	}
 
 	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+// resize recomputes the table dimensions to fit the new terminal size.
+func (m ExplorerModel) resize(msg tea.WindowSizeMsg) ExplorerModel {
+	m.width = msg.Width
+	m.height = msg.Height
+	// Layout: tabBar(3) + panel top border(1) + table header+border(2) + panel bottom border(1) + helpBar(1) = 8 lines chrome
+	tableHeight := m.height - 8
+	if tableHeight < 3 {
+		tableHeight = 3
+	}
+	// Table width fits inside the panel borders (2 chars for left+right).
+	m.table.SetWidth(m.width - 2)
+	m.table.SetHeight(tableHeight)
+	m.ready = true
+	return m
+}
+
+// applyDeleteStatus records the outcome of a delete operation in the status bar.
+func (m ExplorerModel) applyDeleteStatus(msg deleteStatusMsg) ExplorerModel {
+	if msg.Success {
+		m.statusText = fmt.Sprintf("Deleted %d hit(s)", msg.Count)
+	} else {
+		m.statusText = fmt.Sprintf("Delete failed: %v", msg.Err)
+	}
+	return m
+}
+
+// applyBookmarkToggle updates the local bookmark state for a domain and
+// refreshes the affected row.
+func (m ExplorerModel) applyBookmarkToggle(msg BookmarkToggleMsg) ExplorerModel {
+	for i := range m.hits {
+		if m.hits[i].Domain == msg.Domain {
+			m.hits[i].Bookmarked = msg.Bookmarked
+			break
+		}
+	}
+	m.table.SetRows(m.hitsToRows())
+	return m
+}
+
+// handleHitsLoaded applies a freshly loaded hit set, filtering out recently
+// deleted domains and remapping the selection by domain identity when a reload
+// was requested with keepSelection set.
+func (m ExplorerModel) handleHitsLoaded(msg HitsLoadedMsg) ExplorerModel {
+	// Filter out recently deleted domains so the poller can't re-insert them visually.
+	filtered := make([]domain.Hit, 0, len(msg.Hits))
+	for _, h := range msg.Hits {
+		if !m.deletedSet[h.Domain] {
+			filtered = append(filtered, h)
+		}
+	}
+
+	if m.keepSelection {
+		// Remap selection by domain identity across reloads (e.g. sort change).
+		oldDomains := make(map[string]bool, len(m.selected))
+		for idx := range m.selected {
+			if idx < len(m.hits) {
+				oldDomains[m.hits[idx].Domain] = true
+			}
+		}
+		m.hits = filtered
+		m.selected = make(map[int]bool)
+		for i, h := range m.hits {
+			if oldDomains[h.Domain] {
+				m.selected[i] = true
+			}
+		}
+		m.keepSelection = false
+	} else {
+		m.hits = filtered
+		m.selected = make(map[int]bool)
+	}
+	m.loading = false
+	m.table.SetRows(m.hitsToRows())
+	return m
+}
+
+// handleKey routes a key press to the matching explorer action. The
+// confirmation overlay takes precedence over all other bindings.
+func (m ExplorerModel) handleKey(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
+	// Handle confirmation overlay first.
+	if m.confirmAction != "" {
+		return m.handleConfirm(msg)
+	}
+
+	// Clear status message on any key press.
+	m.statusText = ""
+
+	switch msg.String() {
+	case "s":
+		return m.cycleSort(), m.loadHitsCmd()
+
+	case "enter":
+		if row, ok := m.currentRow(); ok {
+			hit := m.hits[row]
+			return m, func() tea.Msg { return ShowDetailMsg{Hit: hit} }
+		}
+		return m, nil
+
+	case "r":
+		// Explicit reload clears the deleted set and status.
+		m.deletedSet = make(map[string]bool)
+		m.statusText = ""
+		m.loading = true
+		return m, m.loadHitsCmd()
+
+	case " ", "a", "A": // selection keys
+		return m.handleSelectionKey(msg.String())
+
+	case "d", "D", "C": // destructive keys (open a confirmation)
+		return m.handleDeleteKey(msg.String()), nil
+
+	case "b": // bookmark toggle
+		if row, ok := m.currentRow(); ok {
+			return m, m.bookmarkToggleCmd(row)
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+// handleSelectionKey handles the row-selection bindings: toggle (space),
+// select-all (a), and deselect-all (A).
+func (m ExplorerModel) handleSelectionKey(key string) (ExplorerModel, tea.Cmd) {
+	switch key {
+	case " ":
+		return m.toggleSelect()
+	case "a":
+		for i := range m.hits {
+			m.selected[i] = true
+		}
+	case "A":
+		m.selected = make(map[int]bool)
+	}
+	m.table.SetRows(m.hitsToRows())
+	return m, nil
+}
+
+// handleDeleteKey arms a confirmation overlay for the destructive bindings:
+// delete-single (d), delete-batch (D), and clear-all (C).
+func (m ExplorerModel) handleDeleteKey(key string) ExplorerModel {
+	switch key {
+	case "d":
+		if row, ok := m.currentRow(); ok {
+			m.confirmAction = "delete-single"
+			m.confirmDomain = m.hits[row].Domain
+		}
+	case "D":
+		if len(m.selected) > 0 {
+			m.confirmAction = "delete-batch"
+		}
+	case "C":
+		m.confirmAction = "clear-all"
+	}
+	return m
+}
+
+// currentRow returns the index of the row under the cursor and whether it is
+// within bounds of the current hit set.
+func (m ExplorerModel) currentRow() (int, bool) {
+	row := m.table.Cursor()
+	return row, row >= 0 && row < len(m.hits)
+}
+
+// cycleSort advances to the next sort column, flips the sort direction, and
+// marks the model for a selection-preserving reload.
+func (m ExplorerModel) cycleSort() ExplorerModel {
+	m.sortCol = (m.sortCol + 1) % len(sortColumns)
+	m.filter.SortBy = sortColumns[m.sortCol]
+	if m.sortDir == "DESC" {
+		m.sortDir = "ASC"
+	} else {
+		m.sortDir = "DESC"
+	}
+	m.filter.SortDir = m.sortDir
+	m.loading = true
+	m.keepSelection = true
+	return m
+}
+
+// toggleSelect flips the selection state of the row under the cursor and
+// advances the cursor down one row.
+func (m ExplorerModel) toggleSelect() (ExplorerModel, tea.Cmd) {
+	row, ok := m.currentRow()
+	if !ok {
+		return m, nil
+	}
+	if m.selected[row] {
+		delete(m.selected, row)
+	} else {
+		m.selected[row] = true
+	}
+	m.table.SetRows(m.hitsToRows())
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(tea.KeyMsg{Type: tea.KeyDown})
 	return m, cmd
 }
 
@@ -349,25 +406,7 @@ func (m ExplorerModel) View() string {
 
 // buildPanelTitle constructs the title string for the explorer panel border.
 func (m ExplorerModel) buildPanelTitle() string {
-	var parts []string
-	if m.filter.Keyword != "" {
-		parts = append(parts, fmt.Sprintf("keyword:%s", m.filter.Keyword))
-	}
-	if m.filter.ScoreMin > 0 {
-		parts = append(parts, fmt.Sprintf("score>=%d", m.filter.ScoreMin))
-	}
-	if m.filter.Severity != "" {
-		parts = append(parts, fmt.Sprintf("severity:%s", m.filter.Severity))
-	}
-	if m.filter.Session != "" {
-		parts = append(parts, fmt.Sprintf("session:%s", m.filter.Session))
-	}
-	if m.filter.Bookmarked {
-		parts = append(parts, "bookmarked:yes")
-	}
-	if m.filter.BaseDomain != "" {
-		parts = append(parts, fmt.Sprintf("base:%s", m.filter.BaseDomain))
-	}
+	parts := m.filterParts()
 
 	var filterStr string
 	if len(parts) > 0 {
@@ -394,6 +433,30 @@ func (m ExplorerModel) buildPanelTitle() string {
 	}
 
 	return title
+}
+
+// filterParts renders the active filter fields as human-readable label segments.
+func (m ExplorerModel) filterParts() []string {
+	var parts []string
+	if m.filter.Keyword != "" {
+		parts = append(parts, "keyword:"+m.filter.Keyword)
+	}
+	if m.filter.ScoreMin > 0 {
+		parts = append(parts, fmt.Sprintf("score>=%d", m.filter.ScoreMin))
+	}
+	if m.filter.Severity != "" {
+		parts = append(parts, "severity:"+m.filter.Severity)
+	}
+	if m.filter.Session != "" {
+		parts = append(parts, "session:"+m.filter.Session)
+	}
+	if m.filter.Bookmarked {
+		parts = append(parts, "bookmarked:yes")
+	}
+	if m.filter.BaseDomain != "" {
+		parts = append(parts, "base:"+m.filter.BaseDomain)
+	}
+	return parts
 }
 
 // SetFilter updates the active query filter and triggers a reload.
@@ -437,65 +500,66 @@ func (m ExplorerModel) renderHelpBar() string {
 func (m ExplorerModel) hitsToRows() []table.Row {
 	rows := make([]table.Row, 0, len(m.hits))
 	for i, hit := range m.hits {
-		// Checkbox column -- plain text only, no ANSI in cell data.
-		checkbox := "[ ]"
-		if m.selected[i] {
-			checkbox = "[x]"
-		}
-
-		kw := strings.Join(hit.Keywords, ", ")
-		if len(kw) > 23 {
-			kw = kw[:20] + "..."
-		}
-
-		// Domain -- plain text with prefix/suffix indicators.
-		dom := hit.Domain
-		maxDom := 34
-		if hit.Bookmarked {
-			maxDom -= 2 // room for "* " prefix
-		}
-		if hit.IsLive {
-			maxDom -= 4 // room for " [L]" suffix
-		}
-		if len(dom) > maxDom {
-			dom = dom[:maxDom-3] + "..."
-		}
-		if hit.Bookmarked {
-			dom = "* " + dom
-		}
-		if hit.IsLive {
-			dom = dom + " [L]"
-		}
-
-		issuer := hit.IssuerCN
-		if len(issuer) > 18 {
-			issuer = issuer[:15] + "..."
-		}
-		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
-
-		// Color cells by severity.
-		sevStyle := SeverityStyle(string(hit.Severity))
-		sevText := sevStyle.Render(string(hit.Severity))
-		scoreText := sevStyle.Render(fmt.Sprintf("%d", hit.Score))
-
-		// Domain colored by severity, or green if live.
-		domText := sevStyle.Render(dom)
-		if hit.IsLive {
-			domText = StyleLiveDomain.Render(dom)
-		}
-
-		rows = append(rows, table.Row{
-			checkbox,
-			sevText,
-			scoreText,
-			domText,
-			kw,
-			issuer,
-			hit.Session,
-			ts,
-		})
+		rows = append(rows, m.hitToRow(i, hit))
 	}
 	return rows
+}
+
+// hitToRow formats a single hit into a styled table row. Index i is used to
+// reflect the row's selection state in the checkbox column.
+func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
+	// Checkbox column -- plain text only, no ANSI in cell data.
+	checkbox := "[ ]"
+	if m.selected[i] {
+		checkbox = "[x]"
+	}
+
+	kw := truncate(strings.Join(hit.Keywords, ", "), 23)
+	dom := formatDomainCell(hit)
+	issuer := truncate(hit.IssuerCN, 18)
+	ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
+
+	// Color cells by severity.
+	sevStyle := SeverityStyle(string(hit.Severity))
+	sevText := sevStyle.Render(string(hit.Severity))
+	scoreText := sevStyle.Render(strconv.Itoa(hit.Score))
+
+	// Domain colored by severity, or green if live.
+	domText := sevStyle.Render(dom)
+	if hit.IsLive {
+		domText = StyleLiveDomain.Render(dom)
+	}
+
+	return table.Row{checkbox, sevText, scoreText, domText, kw, issuer, hit.Session, ts}
+}
+
+// truncate shortens s to at most max runes, appending an ellipsis when cut.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// formatDomainCell renders a domain with bookmark/live indicators, truncating
+// the domain so the decorated string fits the column width.
+func formatDomainCell(hit domain.Hit) string {
+	dom := hit.Domain
+	maxDom := 34
+	if hit.Bookmarked {
+		maxDom -= 2 // room for "* " prefix
+	}
+	if hit.IsLive {
+		maxDom -= 4 // room for " [L]" suffix
+	}
+	dom = truncate(dom, maxDom)
+	if hit.Bookmarked {
+		dom = "* " + dom
+	}
+	if hit.IsLive {
+		dom += " [L]"
+	}
+	return dom
 }
 
 func (m ExplorerModel) loadHitsCmd() tea.Cmd {

@@ -3,6 +3,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,7 +122,7 @@ func Load(path string) (*Config, error) {
 		return cfg, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the user-supplied config file location, not untrusted input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -181,7 +182,7 @@ func LoadSkipOverrides(path string) (SkipOverrides, error) {
 		return SkipOverrides{}, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the user-supplied config file location, not untrusted input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return SkipOverrides{}, nil
@@ -204,28 +205,19 @@ func LoadSkipOverrides(path string) (SkipOverrides, error) {
 // back atomically (temp file + rename). Parent directories are created if needed.
 func SaveSkipOverrides(path string, overrides SkipOverrides) error {
 	if path == "" {
-		return fmt.Errorf("config path is empty")
+		return errors.New("config path is empty")
 	}
 
-	// Ensure parent directory exists.
+	// Ensure parent directory exists. 0700 keeps the config dir user-private.
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory %s: %w", dir, err)
 	}
 
 	// Read existing config or start with an empty one.
-	var rawConfig map[string]any
-	data, err := os.ReadFile(path)
+	rawConfig, err := loadRawConfig(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("reading config file %s: %w", path, err)
-		}
-		// File does not exist -- start from scratch.
-		rawConfig = make(map[string]any)
-	} else {
-		if err := toml.Unmarshal(data, &rawConfig); err != nil {
-			return fmt.Errorf("parsing config file %s: %w", path, err)
-		}
+		return err
 	}
 
 	// Prepare the overrides for encoding. Use empty slices instead of nil
@@ -253,19 +245,41 @@ func SaveSkipOverrides(path string, overrides SkipOverrides) error {
 	buf.WriteString("# Use [skip_overrides] instead.\n\n")
 
 	encoder := toml.NewEncoder(&buf)
-	if err := encoder.Encode(rawConfig); err != nil {
+	if err = encoder.Encode(rawConfig); err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 
-	// Atomic write: write to temp file in same directory, then rename.
+	return atomicWrite(dir, path, buf.Bytes())
+}
+
+// loadRawConfig reads and parses an existing config file into a raw map. A
+// missing file yields an empty map so callers can write a fresh config.
+func loadRawConfig(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is the user-supplied config file location, not untrusted input
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]any), nil
+		}
+		return nil, fmt.Errorf("reading config file %s: %w", path, err)
+	}
+	rawConfig := make(map[string]any)
+	if err := toml.Unmarshal(data, &rawConfig); err != nil {
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
+	}
+	return rawConfig, nil
+}
+
+// atomicWrite writes data to path by first writing a temp file in dir and then
+// renaming it into place, so a crash mid-write never leaves a partial config.
+func atomicWrite(dir, path string, data []byte) error {
 	tmpFile, err := os.CreateTemp(dir, "config-*.toml.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 
-	if _, err := tmpFile.Write(buf.Bytes()); err != nil {
-		tmpFile.Close()    //nolint:errcheck
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
 		os.Remove(tmpPath) //nolint:errcheck
 		return fmt.Errorf("writing temp file: %w", err)
 	}
@@ -278,7 +292,6 @@ func SaveSkipOverrides(path string, overrides SkipOverrides) error {
 		os.Remove(tmpPath) //nolint:errcheck
 		return fmt.Errorf("renaming temp file to %s: %w", path, err)
 	}
-
 	return nil
 }
 

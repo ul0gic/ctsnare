@@ -9,7 +9,7 @@ import (
 )
 
 func TestResolveDomain_Localhost(t *testing.T) {
-	ips, provider, err := ResolveDomain("localhost")
+	ips, provider, err := ResolveDomain(t.Context(), "localhost")
 	require.NoError(t, err)
 	assert.NotEmpty(t, ips, "localhost should resolve to at least one IP")
 
@@ -26,7 +26,7 @@ func TestResolveDomain_Localhost(t *testing.T) {
 }
 
 func TestResolveDomain_NonexistentDomain(t *testing.T) {
-	ips, provider, err := ResolveDomain("this-domain-definitely-does-not-exist-7291.invalid")
+	ips, provider, err := ResolveDomain(t.Context(), "this-domain-definitely-does-not-exist-7291.invalid")
 	assert.Error(t, err, "nonexistent domain should produce an error")
 	assert.Nil(t, ips)
 	assert.Equal(t, "unknown", provider)

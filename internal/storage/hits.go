@@ -166,11 +166,24 @@ func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
 	return nil
 }
 
-// QueryHits builds and executes a dynamic SQL query from the filter fields.
-// All filter criteria use parameterized queries to prevent SQL injection.
-func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain.Hit, error) {
-	var where []string
-	var args []interface{}
+// buildWhereClause translates the filter fields into parameterized SQL
+// predicates and their bound arguments. All values are bound via placeholders
+// to prevent SQL injection.
+func buildWhereClause(filter domain.QueryFilter) (where []string, args []interface{}) {
+	// Simple equality filters keyed on a non-empty string value.
+	for _, f := range []struct {
+		predicate string
+		value     string
+	}{
+		{"severity = ?", filter.Severity},
+		{"session = ?", filter.Session},
+		{"base_domain = ?", filter.BaseDomain},
+	} {
+		if f.value != "" {
+			where = append(where, f.predicate)
+			args = append(args, f.value)
+		}
+	}
 
 	if filter.Keyword != "" {
 		where = append(where, "keywords LIKE ?")
@@ -179,14 +192,6 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	if filter.ScoreMin > 0 {
 		where = append(where, "score >= ?")
 		args = append(args, filter.ScoreMin)
-	}
-	if filter.Severity != "" {
-		where = append(where, "severity = ?")
-		args = append(args, filter.Severity)
-	}
-	if filter.Session != "" {
-		where = append(where, "session = ?")
-		args = append(args, filter.Session)
 	}
 	if filter.Since > 0 {
 		since := time.Now().Add(-filter.Since).UTC().Format(timestampFormat)
@@ -207,17 +212,11 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	if filter.LiveOnly {
 		where = append(where, "is_live = 1")
 	}
-	if filter.BaseDomain != "" {
-		where = append(where, "base_domain = ?")
-		args = append(args, filter.BaseDomain)
-	}
+	return where, args
+}
 
-	query := "SELECT domain, score, severity, keywords, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked, base_domain FROM hits"
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-
-	// Sort clause.
+// orderClause builds the ORDER BY clause from the filter's sort settings.
+func orderClause(filter domain.QueryFilter) string {
 	sortBy := "created_at"
 	if filter.SortBy != "" {
 		sortBy = sanitizeSortColumn(filter.SortBy)
@@ -229,7 +228,22 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	// SECURITY: sortBy is sanitized through sanitizeSortColumn() allowlist;
 	// sortDir is limited to "ASC"/"DESC" by the check above. Both are safe
 	// for direct interpolation. ORDER BY does not support parameterized placeholders.
-	query += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortDir)
+	return fmt.Sprintf(" ORDER BY %s %s", sortBy, sortDir)
+}
+
+// QueryHits builds and executes a dynamic SQL query from the filter fields.
+// All filter criteria use parameterized queries to prevent SQL injection.
+func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain.Hit, error) {
+	where, args := buildWhereClause(filter)
+
+	query := "SELECT domain, score, severity, keywords, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked, base_domain FROM hits"
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	// orderClause interpolates only an allowlisted sort column and a fixed
+	// ASC/DESC direction; no user data reaches the query string here.
+	query += orderClause(filter) //nolint:gosec // ORDER BY built from allowlisted column + fixed direction
 
 	// Pagination.
 	if filter.Limit > 0 {
@@ -267,7 +281,8 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 // so we scan and convert them manually.
 func scanHit(rows interface {
 	Scan(dest ...interface{}) error
-}) (domain.Hit, error) {
+},
+) (domain.Hit, error) {
 	var hit domain.Hit
 	var severity string
 	var keywordsJSON string
@@ -398,7 +413,9 @@ func (d *DB) DeleteHits(ctx context.Context, domains []string) error {
 		args[i] = dom
 	}
 
-	query := "DELETE FROM hits WHERE domain IN (" + strings.Join(placeholders, ",") + ")"
+	// Only "?" placeholders are concatenated; the domain values are bound
+	// via args and never interpolated into the query string.
+	query := "DELETE FROM hits WHERE domain IN (" + strings.Join(placeholders, ",") + ")" //nolint:gosec // placeholders are literal "?", values are parameterized
 	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("deleting %d hits: %w", len(domains), err)
 	}

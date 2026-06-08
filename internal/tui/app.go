@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,150 +82,26 @@ func (m AppModel) Init() tea.Cmd {
 
 // Update handles all incoming messages and delegates to the active sub-model.
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.feed, _ = m.feed.Update(msg)
-		m.explorer, _ = m.explorer.Update(msg)
-		if m.detail != nil {
-			*m.detail, _ = m.detail.Update(msg)
-		}
-		if m.filter != nil {
-			*m.filter, _ = m.filter.Update(msg)
-		}
-		return m, nil
+		return m.resizeAll(msg), nil
 
 	case tea.KeyMsg:
-		// Global quit: ctrl+c always quits, q quits unless in filter overlay
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-		if key.Matches(msg, m.keys.Quit) && m.activeView != viewFilter {
-			return m, tea.Quit
+		if handled, model, cmd := m.handleGlobalKey(msg); handled {
+			return model, cmd
 		}
 
-		// Tab toggles between feed and explorer
-		if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
-			var cmd tea.Cmd
-			if m.activeView == viewFeed {
-				m.activeView = viewExplorer
-				// Auto-reload explorer from DB when switching to it.
-				m.explorer.loading = true
-				cmd = m.explorer.loadHitsCmd()
-			} else {
-				m.activeView = viewFeed
-			}
-			return m, cmd
-		}
+	case HitMsg, EnrichmentMsg, DiscardedDomainMsg, discardTickMsg, StatsMsg:
+		return m.handleStreamMsg(msg)
 
-		// Filter overlay toggle
-		if key.Matches(msg, m.keys.Filter) && m.activeView == viewExplorer {
-			f := NewFilterModel()
-			f.width = m.width
-			f.height = m.height
-			m.filter = &f
-			m.activeView = viewFilter
-			return m, m.filter.Init()
-		}
-
-	case HitMsg:
-		var cmd tea.Cmd
-		m.feed, cmd = m.feed.Update(msg)
-		cmds = append(cmds, cmd)
-		if m.hitChan != nil {
-			cmds = append(cmds, waitForHit(m.hitChan))
-		}
-		return m, tea.Batch(cmds...)
-
-	case EnrichmentMsg:
-		// Update the matching hit in the feed with enrichment data.
-		for i := range m.feed.hits {
-			if m.feed.hits[i].Domain == msg.Domain {
-				m.feed.hits[i].IsLive = msg.IsLive
-				m.feed.hits[i].ResolvedIPs = msg.ResolvedIPs
-				m.feed.hits[i].HostingProvider = msg.HostingProvider
-				m.feed.hits[i].HTTPStatus = msg.HTTPStatus
-				break
-			}
-		}
-		// Also update the explorer's cached hit if it matches.
-		for i := range m.explorer.hits {
-			if m.explorer.hits[i].Domain == msg.Domain {
-				m.explorer.hits[i].IsLive = msg.IsLive
-				m.explorer.hits[i].ResolvedIPs = msg.ResolvedIPs
-				m.explorer.hits[i].HostingProvider = msg.HostingProvider
-				m.explorer.hits[i].HTTPStatus = msg.HTTPStatus
-				break
-			}
-		}
-		// Refresh the detail view if showing this hit.
-		if m.detail != nil && m.detail.hit.Domain == msg.Domain {
-			m.detail.hit.IsLive = msg.IsLive
-			m.detail.hit.ResolvedIPs = msg.ResolvedIPs
-			m.detail.hit.HostingProvider = msg.HostingProvider
-			m.detail.hit.HTTPStatus = msg.HTTPStatus
-		}
-		if m.enrichChan != nil {
-			cmds = append(cmds, waitForEnrichment(m.enrichChan))
-		}
-		return m, tea.Batch(cmds...)
-
-	case DiscardedDomainMsg:
-		var cmd tea.Cmd
-		m.feed, cmd = m.feed.Update(msg)
-		cmds = append(cmds, cmd)
-		if m.discardChan != nil {
-			cmds = append(cmds, waitForDiscard(m.discardChan))
-		}
-		return m, tea.Batch(cmds...)
-
-	case discardTickMsg:
-		var cmd tea.Cmd
-		m.feed, cmd = m.feed.Update(msg)
-		return m, cmd
-
-	case StatsMsg:
-		var cmd tea.Cmd
-		m.feed, cmd = m.feed.Update(msg)
-		cmds = append(cmds, cmd)
-		if m.statsChan != nil {
-			cmds = append(cmds, waitForStats(m.statsChan))
-		}
-		return m, tea.Batch(cmds...)
-
-	case HitsLoadedMsg:
-		var cmd tea.Cmd
-		m.explorer, cmd = m.explorer.Update(msg)
-		return m, cmd
-
-	case DeleteHitsMsg:
-		var cmd tea.Cmd
-		m.explorer, cmd = m.explorer.Update(msg)
-		return m, cmd
-
-	case deleteStatusMsg:
-		var cmd tea.Cmd
-		m.explorer, cmd = m.explorer.Update(msg)
-		return m, cmd
-
-	case BookmarkToggleMsg:
+	case HitsLoadedMsg, DeleteHitsMsg, deleteStatusMsg, BookmarkToggleMsg:
+		// Explorer-owned messages: forward to the explorer regardless of view.
 		var cmd tea.Cmd
 		m.explorer, cmd = m.explorer.Update(msg)
 		return m, cmd
 
 	case ShowDetailMsg:
-		d := NewDetailModel(msg.Hit, m.store)
-		d.width = m.width
-		d.height = m.height
-		m.detail = &d
-		m.activeView = viewDetail
-		sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		*m.detail, _ = m.detail.Update(sizeMsg)
-		// Kick off async subdomain count query.
-		return m, m.detail.Init()
+		return m.showDetail(msg)
 
 	case SubdomainCountMsg:
 		if m.detail != nil {
@@ -233,14 +109,46 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ShowSubdomainsMsg, SwitchViewMsg, FilterAppliedMsg, FilterCancelledMsg:
+		return m.handleNavMsg(msg)
+	}
+
+	return m.delegateToView(msg)
+}
+
+// handleStreamMsg processes the async streaming messages that feed the live
+// view: poller hits, enrichment results, discards, ticks, and stats. Each
+// re-arms its channel wait so the stream continues.
+func (m AppModel) handleStreamMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case HitMsg:
+		return m.forwardToFeed(msg, rearm(m.hitChan, waitForHit))
+	case EnrichmentMsg:
+		m.applyEnrichment(msg)
+		return m, rearm(m.enrichChan, waitForEnrichment)
+	case DiscardedDomainMsg:
+		return m.forwardToFeed(msg, rearm(m.discardChan, waitForDiscard))
+	case StatsMsg:
+		return m.forwardToFeed(msg, rearm(m.statsChan, waitForStats))
+	case discardTickMsg:
+		var cmd tea.Cmd
+		m.feed, cmd = m.feed.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleNavMsg processes the view-navigation messages that switch the active
+// view and (un)mount the detail/filter overlays.
+func (m AppModel) handleNavMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case ShowSubdomainsMsg:
 		m.activeView = viewExplorer
 		m.detail = nil
-		cmd := m.explorer.SetFilter(domain.QueryFilter{
+		return m, m.explorer.SetFilter(domain.QueryFilter{
 			BaseDomain: msg.BaseDomain,
 			Limit:      500,
 		})
-		return m, cmd
 
 	case SwitchViewMsg:
 		m.activeView = msg.View
@@ -255,16 +163,31 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case FilterAppliedMsg:
 		m.activeView = viewExplorer
 		m.filter = nil
-		cmd := m.explorer.SetFilter(msg.Filter)
-		return m, cmd
+		return m, m.explorer.SetFilter(msg.Filter)
 
 	case FilterCancelledMsg:
 		m.activeView = viewExplorer
 		m.filter = nil
 		return m, nil
 	}
+	return m, nil
+}
 
-	// Delegate to active view
+// showDetail opens the detail view for a hit, sizes it to the terminal, and
+// kicks off the async subdomain-count query.
+func (m AppModel) showDetail(msg ShowDetailMsg) (tea.Model, tea.Cmd) {
+	d := NewDetailModel(msg.Hit, m.store)
+	d.width = m.width
+	d.height = m.height
+	m.detail = &d
+	m.activeView = viewDetail
+	*m.detail, _ = m.detail.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	return m, m.detail.Init()
+}
+
+// delegateToView forwards an otherwise-unhandled message to the active view's
+// sub-model.
+func (m AppModel) delegateToView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.activeView {
 	case viewFeed:
@@ -280,8 +203,107 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			*m.filter, cmd = m.filter.Update(msg)
 		}
 	}
-
 	return m, cmd
+}
+
+// rearm returns the command that waits for the next value on ch, or nil when
+// ch is not wired up (so the TUI never blocks on a missing channel).
+func rearm[T any](ch <-chan T, wait func(<-chan T) tea.Cmd) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return wait(ch)
+}
+
+// resizeAll propagates a window-size change to every sub-model.
+func (m AppModel) resizeAll(msg tea.WindowSizeMsg) AppModel {
+	m.width = msg.Width
+	m.height = msg.Height
+	m.feed, _ = m.feed.Update(msg)
+	m.explorer, _ = m.explorer.Update(msg)
+	if m.detail != nil {
+		*m.detail, _ = m.detail.Update(msg)
+	}
+	if m.filter != nil {
+		*m.filter, _ = m.filter.Update(msg)
+	}
+	return m
+}
+
+// forwardToFeed delivers a message to the feed sub-model and batches the feed's
+// command with an optional re-arm command (the next channel-wait), which is nil
+// when the corresponding channel is not wired up.
+func (m AppModel) forwardToFeed(msg tea.Msg, rearm tea.Cmd) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.feed, cmd = m.feed.Update(msg)
+	if rearm == nil {
+		return m, cmd
+	}
+	return m, tea.Batch(cmd, rearm)
+}
+
+// handleGlobalKey processes app-level key bindings (quit, tab, filter overlay)
+// that take precedence over the active view. It returns handled=true when the
+// key was consumed at this level; otherwise the caller delegates to the view.
+func (m AppModel) handleGlobalKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
+	// Global quit: ctrl+c always quits, q quits unless in filter overlay.
+	if msg.String() == "ctrl+c" {
+		return true, m, tea.Quit
+	}
+	if key.Matches(msg, m.keys.Quit) && m.activeView != viewFilter {
+		return true, m, tea.Quit
+	}
+
+	// Tab toggles between feed and explorer.
+	if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
+		if m.activeView == viewFeed {
+			m.activeView = viewExplorer
+			// Auto-reload explorer from DB when switching to it.
+			m.explorer.loading = true
+			return true, m, m.explorer.loadHitsCmd()
+		}
+		m.activeView = viewFeed
+		return true, m, nil
+	}
+
+	// Filter overlay toggle.
+	if key.Matches(msg, m.keys.Filter) && m.activeView == viewExplorer {
+		f := NewFilterModel()
+		f.width = m.width
+		f.height = m.height
+		m.filter = &f
+		m.activeView = viewFilter
+		return true, m, m.filter.Init()
+	}
+
+	return false, m, nil
+}
+
+// applyEnrichment propagates enrichment data for a domain into the feed,
+// explorer cache, and the detail view if it is currently showing that domain.
+func (m AppModel) applyEnrichment(msg EnrichmentMsg) {
+	apply := func(h *domain.Hit) {
+		h.IsLive = msg.IsLive
+		h.ResolvedIPs = msg.ResolvedIPs
+		h.HostingProvider = msg.HostingProvider
+		h.HTTPStatus = msg.HTTPStatus
+	}
+
+	for i := range m.feed.hits {
+		if m.feed.hits[i].Domain == msg.Domain {
+			apply(&m.feed.hits[i])
+			break
+		}
+	}
+	for i := range m.explorer.hits {
+		if m.explorer.hits[i].Domain == msg.Domain {
+			apply(&m.explorer.hits[i])
+			break
+		}
+	}
+	if m.detail != nil && m.detail.hit.Domain == msg.Domain {
+		apply(&m.detail.hit)
+	}
 }
 
 // View renders the currently active view.
@@ -361,17 +383,17 @@ func renderTitledPanel(title, content string, width int) string {
 	if remaining < 0 {
 		remaining = 0
 	}
-	topBorder := string(border.TopLeft) + string(border.Top) + titleRendered + strings.Repeat(string(border.Top), remaining) + string(border.TopRight)
+	topBorder := border.TopLeft + border.Top + titleRendered + strings.Repeat(border.Top, remaining) + border.TopRight
 	topBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(topBorder)
 
 	// Build bottom border.
-	bottomBorder := string(border.BottomLeft) + strings.Repeat(string(border.Bottom), innerWidth) + string(border.BottomRight)
+	bottomBorder := border.BottomLeft + strings.Repeat(border.Bottom, innerWidth) + border.BottomRight
 	bottomBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(bottomBorder)
 
 	// Wrap each content line with side borders.
 	borderStyle := lipgloss.NewStyle().Foreground(colorSubtle)
-	leftBorder := borderStyle.Render(string(border.Left))
-	rightBorder := borderStyle.Render(string(border.Right))
+	leftBorder := borderStyle.Render(border.Left)
+	rightBorder := borderStyle.Render(border.Right)
 
 	lines := strings.Split(content, "\n")
 	var body strings.Builder
@@ -391,7 +413,7 @@ func formatClock() string {
 
 // formatNumber adds commas to a number for readability (e.g. 12847 -> "12,847").
 func formatNumber(n int64) string {
-	s := fmt.Sprintf("%d", n)
+	s := strconv.FormatInt(n, 10)
 	if len(s) <= 3 {
 		return s
 	}

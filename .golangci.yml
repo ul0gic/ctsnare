@@ -1,31 +1,104 @@
 version: "2"
-
 run:
   go: "1.26"
-
+  timeout: 5m
+  tests: true
 linters:
   enable:
+    # baseline correctness
     - errcheck
     - govet
     - staticcheck
     - unused
     - ineffassign
+    # security / unsafe surfaces
+    - gosec
+    - bidichk
+    - noctx
+    - contextcheck
+    - containedctx
+    # resource leaks
+    - bodyclose
+    - sqlclosecheck
+    - rowserrcheck
+    # correctness footguns
+    - nilerr
+    - nilnesserr
+    - errorlint
+    - copyloopvar
+    - durationcheck
+    - makezero
+    - reassign
+    - wastedassign
+    # performance / simplicity
+    - prealloc
+    - perfsprint
+    - unconvert
+    - unparam
+    - gocritic
+    # Pike-ish shape discipline
+    - revive
+    - nestif
+    - gocognit
+    - cyclop
+    - nakedret
+    - predeclared
+    - forcetypeassert
+    - usestdlibvars
+    - misspell
+    - nolintlint
   settings:
     errcheck:
+      check-type-assertions: true
+      check-blank: true
       exclude-functions:
         - (io.Closer).Close
         - (*os.File).Close
-        - (net/http.ResponseWriter).Write
-        - fmt.Fprintf
-        - fmt.Fprintln
+        # SQL read-path Close: data is already read and rows.Err()/db setup
+        # errors are checked separately; the Close error is not actionable.
         - (*database/sql.DB).Close
         - (*database/sql.Rows).Close
+        # storage.DB.Close in tests is deferred cleanup; production call sites
+        # use closeStore() which logs the error.
         - (*github.com/ul0gic/ctsnare/internal/storage.DB).Close
-
+        - fmt.Fprintf
+        - fmt.Fprintln
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # struct field-ordering churn — cosmetic, not worth the diff
+    gosec:
+      excludes:
+        - G104 # handled harder by errcheck
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: early-return
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: increment-decrement
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+    cyclop:
+      max-complexity: 10
+    gocognit:
+      min-complexity: 15
+    nestif:
+      min-complexity: 4
 formatters:
   enable:
-    - gofmt
+    - gofumpt
     - goimports
-
 issues:
   max-issues-per-linter: 0
+  max-same-issues: 0

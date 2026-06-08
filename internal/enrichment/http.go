@@ -1,6 +1,7 @@
 package enrichment
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 )
@@ -18,15 +19,15 @@ const userAgent = "ctsnare/1.0 (domain-liveness-check)"
 // redirect policy limiting redirects (typically 3).
 //
 // The response body is never read (HEAD only).
-func ProbeLiveness(httpClient *http.Client, domainName string) (statusCode int, isLive bool, err error) {
+func ProbeLiveness(ctx context.Context, httpClient *http.Client, domainName string) (statusCode int, isLive bool, err error) {
 	// Try HTTPS first.
-	code, err := doHEAD(httpClient, "https://"+domainName+"/")
+	code, err := doHEAD(ctx, httpClient, "https://"+domainName+"/")
 	if err == nil {
 		return code, true, nil
 	}
 
 	// HTTPS failed -- try plain HTTP as fallback.
-	code, err = doHEAD(httpClient, "http://"+domainName+"/")
+	code, err = doHEAD(ctx, httpClient, "http://"+domainName+"/")
 	if err == nil {
 		return code, true, nil
 	}
@@ -35,8 +36,8 @@ func ProbeLiveness(httpClient *http.Client, domainName string) (statusCode int, 
 }
 
 // doHEAD sends an HTTP HEAD request to the given URL and returns the status code.
-func doHEAD(client *http.Client, url string) (int, error) {
-	req, err := http.NewRequest(http.MethodHead, url, nil)
+func doHEAD(ctx context.Context, client *http.Client, url string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return 0, fmt.Errorf("creating HEAD request for %s: %w", url, err)
 	}

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -116,13 +118,22 @@ func openDB() (*storage.DB, error) {
 	return store, nil
 }
 
+// closeStore closes a database handle, logging any close error at debug level.
+// Close failures on a read-only command are not actionable for the user but
+// should not be silently discarded.
+func closeStore(store *storage.DB) {
+	if err := store.Close(); err != nil {
+		slog.Debug("closing database", "error", err)
+	}
+}
+
 // runDBStats displays aggregate statistics about stored hits.
 func runDBStats(_ *cobra.Command, _ []string) error {
 	store, err := openDB()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer closeStore(store)
 
 	stats, err := store.Stats(context.Background())
 	if err != nil {
@@ -135,14 +146,14 @@ func runDBStats(_ *cobra.Command, _ []string) error {
 // runDBClear deletes hits from the database.
 func runDBClear(_ *cobra.Command, _ []string) error {
 	if !dbClearConfirm {
-		return fmt.Errorf("use --confirm to confirm deletion")
+		return errors.New("use --confirm to confirm deletion")
 	}
 
 	store, err := openDB()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer closeStore(store)
 
 	ctx := context.Background()
 
@@ -167,12 +178,12 @@ func runDBExport(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer closeStore(store)
 
 	// Determine output destination.
 	var w *os.File
 	if dbExportOutput != "" {
-		w, err = os.Create(dbExportOutput)
+		w, err = os.Create(dbExportOutput) //nolint:gosec // dbExportOutput is the user-supplied --output path
 		if err != nil {
 			return fmt.Errorf("creating output file: %w", err)
 		}

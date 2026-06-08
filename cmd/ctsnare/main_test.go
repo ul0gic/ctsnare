@@ -21,7 +21,7 @@ func buildBinary(t *testing.T) string {
 		bin += ".exe"
 	}
 
-	cmd := exec.Command("go", "build", "-o", bin, ".")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, ".") //nolint:gosec // fixed "go build" command with a test-controlled output path
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building ctsnare: %v\n%s", err, out)
 	}
@@ -33,7 +33,7 @@ func buildBinary(t *testing.T) string {
 func TestMainHelp(t *testing.T) {
 	bin := buildBinary(t)
 
-	out, err := exec.Command(bin, "--help").CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), bin, "--help").CombinedOutput() //nolint:gosec // bin is the test-built binary path
 	if err != nil {
 		t.Fatalf("ctsnare --help exited with error: %v\n%s", err, out)
 	}
@@ -52,7 +52,7 @@ func TestMainHelp(t *testing.T) {
 func TestMainUnknownCommandFails(t *testing.T) {
 	bin := buildBinary(t)
 
-	cmd := exec.Command(bin, "definitely-not-a-real-command")
+	cmd := exec.CommandContext(t.Context(), bin, "definitely-not-a-real-command") //nolint:gosec // bin is the test-built binary path
 	err := cmd.Run()
 
 	var exitErr *exec.ExitError

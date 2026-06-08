@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -45,27 +46,7 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		// Layout: tabBar(3) + panel top/bottom borders(2) + helpBar(1) = 6 lines of chrome.
-		contentHeight := m.height - 6
-		if contentHeight < 1 {
-			contentHeight = 1
-		}
-		// Content width is inside the panel borders (2 chars).
-		contentWidth := m.width - 4
-		if contentWidth < 20 {
-			contentWidth = 20
-		}
-		if !m.ready {
-			m.viewport = viewport.New(contentWidth, contentHeight)
-			m.ready = true
-		} else {
-			m.viewport.Width = contentWidth
-			m.viewport.Height = contentHeight
-		}
-		m.viewport.SetContent(m.renderContent())
-		return m, nil
+		return m.resize(msg), nil
 
 	case SubdomainCountMsg:
 		if msg.BaseDomain == m.hit.BaseDomain {
@@ -78,29 +59,61 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "esc" || msg.String() == "q" {
-			return m, func() tea.Msg {
-				return SwitchViewMsg{View: 1}
-			}
+		if handled, model, keyCmd := m.handleKey(msg); handled {
+			return model, keyCmd
 		}
-		// Enter drills down to the subdomain list if count > 1.
-		if msg.String() == "enter" && m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
-			baseDomain := m.hit.BaseDomain
-			fromDomain := m.hit.Domain
-			return m, func() tea.Msg {
-				return ShowSubdomainsMsg{BaseDomain: baseDomain, FromDomain: fromDomain}
-			}
-		}
-		if m.ready {
-			m.viewport, cmd = m.viewport.Update(msg)
-		}
-		return m, cmd
 	}
 
 	if m.ready {
 		m.viewport, cmd = m.viewport.Update(msg)
 	}
 	return m, cmd
+}
+
+// resize recomputes the detail viewport dimensions for a new terminal size,
+// creating the viewport on first sizing.
+func (m DetailModel) resize(msg tea.WindowSizeMsg) DetailModel {
+	m.width = msg.Width
+	m.height = msg.Height
+	// Layout: tabBar(3) + panel top/bottom borders(2) + helpBar(1) = 6 lines of chrome.
+	contentHeight := m.height - 6
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	// Content width is inside the panel borders (2 chars).
+	contentWidth := m.width - 4
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+	if !m.ready {
+		m.viewport = viewport.New(contentWidth, contentHeight)
+		m.ready = true
+	} else {
+		m.viewport.Width = contentWidth
+		m.viewport.Height = contentHeight
+	}
+	m.viewport.SetContent(m.renderContent())
+	return m
+}
+
+// handleKey processes detail-view key bindings: back (esc/q) and drill-down
+// into the subdomain list (enter). It returns handled=false when the key
+// should fall through to the scrolling viewport.
+func (m DetailModel) handleKey(msg tea.KeyMsg) (handled bool, model DetailModel, cmd tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		return true, m, func() tea.Msg { return SwitchViewMsg{View: 1} }
+	case "enter":
+		// Drill down to the subdomain list if count > 1.
+		if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
+			baseDomain := m.hit.BaseDomain
+			fromDomain := m.hit.Domain
+			return true, m, func() tea.Msg {
+				return ShowSubdomainsMsg{BaseDomain: baseDomain, FromDomain: fromDomain}
+			}
+		}
+	}
+	return false, m, nil
 }
 
 // View renders the detail model as a string.
@@ -192,45 +205,10 @@ func (m DetailModel) renderContent() string {
 	b.WriteString(renderField("Session", m.hit.Session))
 
 	// SANs section.
-	b.WriteString("\n")
-	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("SANs") + "\n")
-	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
-	if len(m.hit.SANDomains) > 0 {
-		for _, san := range m.hit.SANDomains {
-			fmt.Fprintf(&b, "    %s\n", san)
-		}
-	} else {
-		b.WriteString("    (none)\n")
-	}
+	m.renderSANs(&b, sepWidth)
 
 	// Enrichment data section -- only shown if enrichment has run.
-	if !m.hit.LiveCheckedAt.IsZero() {
-		b.WriteString("\n")
-		b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Enrichment") + "\n")
-		b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
-
-		liveStr := lipgloss.NewStyle().Foreground(colorHighSeverity).Render("No")
-		if m.hit.IsLive {
-			liveStr = StyleLiveDomain.Render("Yes")
-		}
-		b.WriteString(renderField("Live", liveStr))
-
-		if len(m.hit.ResolvedIPs) > 0 {
-			b.WriteString(renderField("Resolved IPs", strings.Join(m.hit.ResolvedIPs, ", ")))
-		} else {
-			b.WriteString(renderField("Resolved IPs", "(none)"))
-		}
-
-		if m.hit.HostingProvider != "" {
-			b.WriteString(renderField("Hosting", m.hit.HostingProvider))
-		}
-
-		if m.hit.HTTPStatus > 0 {
-			b.WriteString(renderField("HTTP Status", fmt.Sprintf("%d", m.hit.HTTPStatus)))
-		}
-
-		b.WriteString(renderField("Last Checked", m.hit.LiveCheckedAt.Format("2006-01-02 15:04:05")))
-	}
+	m.renderEnrichment(&b, sepWidth)
 
 	// Related Subdomains section -- only shown when count > 1.
 	if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
@@ -252,6 +230,54 @@ func (m DetailModel) renderContent() string {
 	}
 
 	return b.String()
+}
+
+// renderSANs writes the Subject Alternative Names section into b.
+func (m DetailModel) renderSANs(b *strings.Builder, sepWidth int) {
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("SANs") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
+	if len(m.hit.SANDomains) == 0 {
+		b.WriteString("    (none)\n")
+		return
+	}
+	for _, san := range m.hit.SANDomains {
+		fmt.Fprintf(b, "    %s\n", san)
+	}
+}
+
+// renderEnrichment writes the DNS/HTTP enrichment section into b. It is a no-op
+// until enrichment has run for the hit (LiveCheckedAt is set).
+func (m DetailModel) renderEnrichment(b *strings.Builder, sepWidth int) {
+	if m.hit.LiveCheckedAt.IsZero() {
+		return
+	}
+
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Enrichment") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
+
+	liveStr := lipgloss.NewStyle().Foreground(colorHighSeverity).Render("No")
+	if m.hit.IsLive {
+		liveStr = StyleLiveDomain.Render("Yes")
+	}
+	b.WriteString(renderField("Live", liveStr))
+
+	if len(m.hit.ResolvedIPs) > 0 {
+		b.WriteString(renderField("Resolved IPs", strings.Join(m.hit.ResolvedIPs, ", ")))
+	} else {
+		b.WriteString(renderField("Resolved IPs", "(none)"))
+	}
+
+	if m.hit.HostingProvider != "" {
+		b.WriteString(renderField("Hosting", m.hit.HostingProvider))
+	}
+
+	if m.hit.HTTPStatus > 0 {
+		b.WriteString(renderField("HTTP Status", strconv.Itoa(m.hit.HTTPStatus)))
+	}
+
+	b.WriteString(renderField("Last Checked", m.hit.LiveCheckedAt.Format("2006-01-02 15:04:05")))
 }
 
 func renderField(label, value string) string {

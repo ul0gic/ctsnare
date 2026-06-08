@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,43 +63,10 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		// Layout: tabBar(3) + feedPanel(top+bottom border = 2) + statsPanel(3) + helpBar(1) = 9 lines of chrome
-		contentHeight := m.height - 9
-		if contentHeight < 1 {
-			contentHeight = 1
-		}
-		contentWidth := m.feedContentWidth()
-		if !m.ready {
-			m.viewport = viewport.New(contentWidth, contentHeight)
-			m.viewport.MouseWheelEnabled = true
-			m.ready = true
-		} else {
-			m.viewport.Width = contentWidth
-			m.viewport.Height = contentHeight
-		}
-		m.viewport.SetContent(m.renderHits())
-		return m, nil
+		return m.resize(msg), nil
 
 	case HitMsg:
-		// Filter LOW-scored hits from the feed — they're heuristic-only noise.
-		if msg.Hit.Score < 4 {
-			m.lowCount++
-			return m, nil
-		}
-		m.topKeywords = updateKeywordCounts(m.topKeywords, msg.Hit.Keywords)
-		if m.paused {
-			return m, nil
-		}
-		m.hits = prependHit(m.hits, msg.Hit, maxFeedHits)
-		if m.ready {
-			m.viewport.SetContent(m.renderHits())
-			if m.autoScroll {
-				m.viewport.GotoTop()
-			}
-		}
-		return m, nil
+		return m.addHit(msg.Hit), nil
 
 	case DiscardedDomainMsg:
 		m.discardCount++
@@ -134,6 +102,51 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 	return m, cmd
 }
 
+// resize recomputes the feed viewport dimensions for a new terminal size,
+// creating the viewport on first sizing.
+func (m FeedModel) resize(msg tea.WindowSizeMsg) FeedModel {
+	m.width = msg.Width
+	m.height = msg.Height
+	// Layout: tabBar(3) + feedPanel(top+bottom border = 2) + statsPanel(3) + helpBar(1) = 9 lines of chrome
+	contentHeight := m.height - 9
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	contentWidth := m.feedContentWidth()
+	if !m.ready {
+		m.viewport = viewport.New(contentWidth, contentHeight)
+		m.viewport.MouseWheelEnabled = true
+		m.ready = true
+	} else {
+		m.viewport.Width = contentWidth
+		m.viewport.Height = contentHeight
+	}
+	m.viewport.SetContent(m.renderHits())
+	return m
+}
+
+// addHit incorporates a new hit into the feed, filtering low-scored noise,
+// updating keyword counts, and refreshing the viewport unless paused.
+func (m FeedModel) addHit(hit domain.Hit) FeedModel {
+	// Filter LOW-scored hits from the feed — they're heuristic-only noise.
+	if hit.Score < 4 {
+		m.lowCount++
+		return m
+	}
+	m.topKeywords = updateKeywordCounts(m.topKeywords, hit.Keywords)
+	if m.paused {
+		return m
+	}
+	m.hits = prependHit(m.hits, hit, maxFeedHits)
+	if m.ready {
+		m.viewport.SetContent(m.renderHits())
+		if m.autoScroll {
+			m.viewport.GotoTop()
+		}
+	}
+	return m
+}
+
 // View renders the feed model as a string.
 func (m FeedModel) View() string {
 	if !m.ready {
@@ -142,11 +155,12 @@ func (m FeedModel) View() string {
 
 	// Tab bar with live/paused indicator and profile.
 	var liveTag string
-	if m.paused {
+	switch {
+	case m.paused:
 		liveTag = lipgloss.NewStyle().Foreground(colorHighSeverity).Bold(true).Render("PAUSED")
-	} else if !m.autoScroll {
+	case !m.autoScroll:
 		liveTag = lipgloss.NewStyle().Foreground(colorMedSeverity).Bold(true).Render("SCROLL-PAUSED")
-	} else {
+	default:
 		liveTag = StyleLiveDomain.Render("LIVE")
 	}
 	tabExtra := liveTag + " " + StyleHelpDesc.Render("("+m.profile+")") + " " + StyleHelpDesc.Render(formatClock())
@@ -207,7 +221,7 @@ func (m FeedModel) renderFeedPanel() string {
 // renderStatsPanel renders the stats bar wrapped in a titled panel.
 func (m FeedModel) renderStatsPanel() string {
 	scanned := StyleHelpDesc.Render("Scanned ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(formatNumber(m.stats.CertsScanned))
-	hits := StyleHelpDesc.Render("  Hits ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%d", m.stats.HitsFound))
+	hits := StyleHelpDesc.Render("  Hits ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(strconv.FormatInt(m.stats.HitsFound, 10))
 
 	rateColor := colorLowSeverity
 	if m.stats.CertsPerSec == 0 {
@@ -215,7 +229,7 @@ func (m FeedModel) renderStatsPanel() string {
 	}
 	rate := StyleHelpDesc.Render("  Rate ") + lipgloss.NewStyle().Foreground(rateColor).Render(fmt.Sprintf("%.0f c/s", m.stats.CertsPerSec))
 	hpm := StyleHelpDesc.Render("  Hits/min ") + lipgloss.NewStyle().Foreground(colorMedSeverity).Render(fmt.Sprintf("%.1f", m.stats.HitsPerMin))
-	logs := StyleHelpDesc.Render("  Logs ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(fmt.Sprintf("%d", m.stats.ActiveLogs))
+	logs := StyleHelpDesc.Render("  Logs ") + lipgloss.NewStyle().Foreground(colorLowSeverity).Render(strconv.Itoa(m.stats.ActiveLogs))
 
 	statsLine := " " + scanned + hits + rate + hpm + logs
 

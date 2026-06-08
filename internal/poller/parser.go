@@ -5,6 +5,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -63,7 +64,7 @@ func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 	case 0: // x509_entry
 		// ASN1Cert is an opaque<1..2^24-1>: 3-byte length prefix + DER cert.
 		if len(leafInput) < 15 {
-			return nil, fmt.Errorf("x509_entry too short")
+			return nil, errors.New("x509_entry too short")
 		}
 		certLen := int(leafInput[12])<<16 | int(leafInput[13])<<8 | int(leafInput[14])
 		if len(leafInput) < 15+certLen {
@@ -75,13 +76,13 @@ func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 		// PreCert: issuer_key_hash (32 bytes) + TBSCertificate opaque<1..2^24-1>.
 		offset := 12
 		if len(leafInput) < offset+32+3 {
-			return nil, fmt.Errorf("precert_entry too short")
+			return nil, errors.New("precert_entry too short")
 		}
 		offset += 32 // skip issuer_key_hash
 		tbsLen := int(leafInput[offset])<<16 | int(leafInput[offset+1])<<8 | int(leafInput[offset+2])
 		offset += 3
 		if len(leafInput) < offset+tbsLen {
-			return nil, fmt.Errorf("precert TBS truncated")
+			return nil, errors.New("precert TBS truncated")
 		}
 		tbsBytes := leafInput[offset : offset+tbsLen]
 
@@ -149,12 +150,9 @@ func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 // We walk the SEQUENCE element-by-element with asn1.RawValue and return the
 // full DER encoding (tag + length + content) of the signature element.
 func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
-	var seq asn1.RawValue
-	if _, err := asn1.Unmarshal(tbs, &seq); err != nil {
-		return nil, fmt.Errorf("parsing TBSCertificate sequence: %w", err)
-	}
-	if seq.Tag != asn1.TagSequence || !seq.IsCompound {
-		return nil, fmt.Errorf("TBSCertificate is not a SEQUENCE")
+	seq, err := unmarshalSequence(tbs, "TBSCertificate")
+	if err != nil {
+		return nil, err
 	}
 
 	rest := seq.Bytes
@@ -178,15 +176,25 @@ func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
 	}
 
 	// signature AlgorithmIdentifier — capture its full DER bytes.
-	var sigAlg asn1.RawValue
-	if _, err := asn1.Unmarshal(rest, &sigAlg); err != nil {
-		return nil, fmt.Errorf("parsing signature AlgorithmIdentifier: %w", err)
+	sigAlg, err := unmarshalSequence(rest, "signature AlgorithmIdentifier")
+	if err != nil {
+		return nil, err
 	}
-	if sigAlg.Tag != asn1.TagSequence || !sigAlg.IsCompound {
-		return nil, fmt.Errorf("signature AlgorithmIdentifier is not a SEQUENCE")
-	}
-
 	return sigAlg.FullBytes, nil
+}
+
+// unmarshalSequence parses the next ASN.1 value from b and asserts it is a
+// compound SEQUENCE. name is used in error messages to identify the expected
+// element.
+func unmarshalSequence(b []byte, name string) (asn1.RawValue, error) {
+	var seq asn1.RawValue
+	if _, err := asn1.Unmarshal(b, &seq); err != nil {
+		return seq, fmt.Errorf("parsing %s sequence: %w", name, err)
+	}
+	if seq.Tag != asn1.TagSequence || !seq.IsCompound {
+		return seq, fmt.Errorf("%s is not a SEQUENCE", name)
+	}
+	return seq, nil
 }
 
 // uniqueDomains extracts all unique domain names from a certificate:

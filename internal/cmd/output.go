@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -36,7 +37,7 @@ func FormatTable(hits []domain.Hit, w io.Writer) error {
 			domainStr = "* " + domainStr
 		}
 		if hit.IsLive {
-			domainStr = domainStr + " [L]"
+			domainStr += " [L]"
 		}
 
 		_, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
@@ -75,7 +76,7 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 	for _, hit := range hits {
 		row := []string{
 			string(hit.Severity),
-			fmt.Sprintf("%d", hit.Score),
+			strconv.Itoa(hit.Score),
 			hit.Domain,
 			strings.Join(hit.Keywords, ";"),
 			hit.Issuer,
@@ -84,11 +85,11 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 			hit.Profile,
 			hit.Session,
 			hit.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			fmt.Sprintf("%t", hit.IsLive),
+			strconv.FormatBool(hit.IsLive),
 			strings.Join(hit.ResolvedIPs, ";"),
 			hit.HostingProvider,
-			fmt.Sprintf("%d", hit.HTTPStatus),
-			fmt.Sprintf("%t", hit.Bookmarked),
+			strconv.Itoa(hit.HTTPStatus),
+			strconv.FormatBool(hit.Bookmarked),
 			hit.BaseDomain,
 		}
 		if err := cw.Write(row); err != nil {
@@ -100,60 +101,44 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 }
 
 // FormatStats writes database statistics in a human-readable format.
+// errWriter wraps an io.Writer and records the first write error, so a sequence
+// of formatted writes can be expressed without an error check after each call.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (ew *errWriter) printf(format string, args ...any) {
+	if ew.err != nil {
+		return
+	}
+	_, ew.err = fmt.Fprintf(ew.w, format, args...)
+}
+
 func FormatStats(stats domain.DBStats, w io.Writer) error {
-	_, err := fmt.Fprintf(w, "Database Statistics\n")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(w, "==================\n\n")
-	if err != nil {
-		return err
-	}
+	ew := &errWriter{w: w}
 
-	_, err = fmt.Fprintf(w, "Total Hits:  %d\n\n", stats.TotalHits)
-	if err != nil {
-		return err
-	}
+	ew.printf("Database Statistics\n")
+	ew.printf("==================\n\n")
+	ew.printf("Total Hits:  %d\n\n", stats.TotalHits)
 
-	_, err = fmt.Fprintf(w, "By Severity:\n")
-	if err != nil {
-		return err
-	}
+	ew.printf("By Severity:\n")
 	for _, sev := range []domain.Severity{domain.SeverityHigh, domain.SeverityMed, domain.SeverityLow} {
-		count := stats.BySeverity[sev]
-		_, err = fmt.Fprintf(w, "  %-6s %d\n", sev, count)
-		if err != nil {
-			return err
-		}
+		ew.printf("  %-6s %d\n", sev, stats.BySeverity[sev])
 	}
 
 	if len(stats.TopKeywords) > 0 {
-		_, err = fmt.Fprintf(w, "\nTop Keywords:\n")
-		if err != nil {
-			return err
-		}
+		ew.printf("\nTop Keywords:\n")
 		for i, kw := range stats.TopKeywords {
-			_, err = fmt.Fprintf(w, "  %2d. %-20s %d\n", i+1, kw.Keyword, kw.Count)
-			if err != nil {
-				return err
-			}
+			ew.printf("  %2d. %-20s %d\n", i+1, kw.Keyword, kw.Count)
 		}
 	}
 
 	if !stats.FirstHit.IsZero() {
-		_, err = fmt.Fprintf(w, "\nDate Range:\n")
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(w, "  First Hit: %s\n", stats.FirstHit.Format("2006-01-02 15:04:05"))
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(w, "  Last Hit:  %s\n", stats.LastHit.Format("2006-01-02 15:04:05"))
-		if err != nil {
-			return err
-		}
+		ew.printf("\nDate Range:\n")
+		ew.printf("  First Hit: %s\n", stats.FirstHit.Format("2006-01-02 15:04:05"))
+		ew.printf("  Last Hit:  %s\n", stats.LastHit.Format("2006-01-02 15:04:05"))
 	}
 
-	return nil
+	return ew.err
 }

@@ -781,7 +781,7 @@ func TestMigrationV2_Idempotent(t *testing.T) {
 
 	db1, err := NewDB(dbPath)
 	require.NoError(t, err)
-	db1.Close()
+	require.NoError(t, db1.Close())
 
 	// Reopen -- migration runs again, should not error.
 	db2, err := NewDB(dbPath)
@@ -1295,7 +1295,7 @@ func TestMigrationV3_Idempotent(t *testing.T) {
 
 	db1, err := NewDB(dbPath)
 	require.NoError(t, err)
-	db1.Close()
+	require.NoError(t, db1.Close())
 
 	// Reopen -- V3 migration runs again, should not error.
 	db2, err := NewDB(dbPath)

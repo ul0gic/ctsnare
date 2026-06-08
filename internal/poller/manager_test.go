@@ -18,7 +18,7 @@ import (
 // mockScorer implements domain.Scorer for testing.
 type mockScorer struct{}
 
-func (m *mockScorer) Score(domainName string, profile *domain.Profile) domain.ScoredDomain {
+func (m *mockScorer) Score(domainName string, _ *domain.Profile) domain.ScoredDomain {
 	return domain.ScoredDomain{
 		Domain:   domainName,
 		Score:    0,

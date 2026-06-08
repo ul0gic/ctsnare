@@ -137,20 +137,10 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 		json.NewEncoder(w).Encode(sth) //nolint:errcheck
 	})
 	mux.HandleFunc("/ct/v1/get-entries", func(w http.ResponseWriter, r *http.Request) {
-		startParam := r.URL.Query().Get("start")
-		endParam := r.URL.Query().Get("end")
-
-		var start, end int64
-		if v, err := json.Number(startParam).Int64(); err == nil {
-			start = v
-		}
-		if v, err := json.Number(endParam).Int64(); err == nil {
-			end = v
-		}
+		start, end := parseRange(r)
 
 		mu.Lock()
 		requestedRanges = append(requestedRanges, struct{ Start, End int64 }{start, end})
-
 		// After the first batch starting at 5000 is requested, grow the tree.
 		if start >= 5000 {
 			treeSize = 12000
@@ -182,22 +172,13 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 
 	// Wait until the poller has processed entries beyond 10000
 	// (i.e., it noticed the tree grew to 12000).
-	deadline := time.After(6 * time.Second)
-	for {
+	hasRangeBeyond := func() bool {
 		mu.Lock()
-		hasSecondRange := false
-		for _, rng := range requestedRanges {
-			if rng.Start >= 10000 {
-				hasSecondRange = true
-				break
-			}
-		}
-		mu.Unlock()
-
-		if hasSecondRange {
-			break
-		}
-
+		defer mu.Unlock()
+		return rangesStartAtOrAbove(requestedRanges, 10000)
+	}
+	deadline := time.After(6 * time.Second)
+	for !hasRangeBeyond() {
 		select {
 		case <-deadline:
 			cancel()
@@ -220,15 +201,30 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 	assert.Equal(t, int64(5000), requestedRanges[0].Start,
 		"first request should start at tree_size - backtrack = 5000")
 
-	foundBeyond := false
-	for _, rng := range requestedRanges {
-		if rng.Start >= 10000 {
-			foundBeyond = true
-			break
+	assert.True(t, rangesStartAtOrAbove(requestedRanges, 10000),
+		"after tree grows to 12000, poller should request entries starting at >= 10000")
+}
+
+// parseRange extracts the start and end query parameters from a get-entries
+// request, defaulting to zero when absent or malformed.
+func parseRange(r *http.Request) (start, end int64) {
+	if v, err := json.Number(r.URL.Query().Get("start")).Int64(); err == nil {
+		start = v
+	}
+	if v, err := json.Number(r.URL.Query().Get("end")).Int64(); err == nil {
+		end = v
+	}
+	return start, end
+}
+
+// rangesStartAtOrAbove reports whether any requested range starts at or above n.
+func rangesStartAtOrAbove(ranges []struct{ Start, End int64 }, n int64) bool {
+	for _, rng := range ranges {
+		if rng.Start >= n {
+			return true
 		}
 	}
-	assert.True(t, foundBeyond,
-		"after tree grows to 12000, poller should request entries starting at >= 10000")
+	return false
 }
 
 // TestBacktrack_DiscardChan_ReceivesZeroScoreDomains verifies that the

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -310,16 +311,16 @@ func validateDomain(raw string) (string, error) {
 	d = strings.TrimSuffix(d, ".")
 
 	if d == "" {
-		return "", fmt.Errorf("empty domain")
+		return "", errors.New("empty domain")
 	}
 	if strings.Contains(d, "://") {
-		return "", fmt.Errorf("must not contain protocol prefix (remove http:// or https://)")
+		return "", errors.New("must not contain protocol prefix (remove http:// or https://)")
 	}
 	if !strings.Contains(d, ".") {
-		return "", fmt.Errorf("must contain at least one dot")
+		return "", errors.New("must contain at least one dot")
 	}
 	if strings.ContainsAny(d, " \t\n") {
-		return "", fmt.Errorf("must not contain whitespace")
+		return "", errors.New("must not contain whitespace")
 	}
 
 	return d, nil

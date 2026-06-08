@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
 // liveCTEnvVar gates the live-network integration test. The default suite
@@ -60,19 +62,7 @@ func TestLiveCTParseSuccess(t *testing.T) {
 		t.Fatalf("no entries returned from %s [%d,%d]", liveCTLog, start, end)
 	}
 
-	var parsed, withDomains int
-	for _, entry := range entries {
-		domains, _, err := ParseCertDomains(entry)
-		if err != nil {
-			t.Logf("parse failure at index %d: %v", entry.Index, err)
-			continue
-		}
-		parsed++
-		if len(domains) > 0 {
-			withDomains++
-		}
-	}
-
+	parsed, withDomains := countParsedEntries(t, entries)
 	ratio := float64(parsed) / float64(len(entries))
 	t.Logf("live CT parse: %d/%d parsed (%.1f%%), %d with domains, window [%d,%d] on %s",
 		parsed, len(entries), ratio*100, withDomains, start, end, liveCTLog)
@@ -84,4 +74,22 @@ func TestLiveCTParseSuccess(t *testing.T) {
 	if withDomains == 0 {
 		t.Fatal("no domains extracted from any live entry — parser is recovering certs but not domains")
 	}
+}
+
+// countParsedEntries parses each entry and returns the number that parsed
+// successfully and the number that yielded at least one domain.
+func countParsedEntries(t *testing.T, entries []domain.CTLogEntry) (parsed, withDomains int) {
+	t.Helper()
+	for _, entry := range entries {
+		domains, _, err := ParseCertDomains(entry)
+		if err != nil {
+			t.Logf("parse failure at index %d: %v", entry.Index, err)
+			continue
+		}
+		parsed++
+		if len(domains) > 0 {
+			withDomains++
+		}
+	}
+	return parsed, withDomains
 }

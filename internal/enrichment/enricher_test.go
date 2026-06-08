@@ -64,6 +64,7 @@ func (m *mockStore) DeleteHits(context.Context, []string) error      { return ni
 func (m *mockStore) CountByBaseDomain(context.Context, string) (int, error) {
 	return 0, nil
 }
+
 func (m *mockStore) QueryHitsByBaseDomain(context.Context, string) ([]domain.Hit, error) {
 	return nil, nil
 }

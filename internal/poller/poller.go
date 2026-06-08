@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"time"
@@ -93,13 +94,7 @@ func (p *Poller) Run(ctx context.Context) error {
 		return fmt.Errorf("getting initial STH for %s: %w", p.logName, err)
 	}
 
-	currentIndex := sth.TreeSize
-	if p.backtrack > 0 {
-		currentIndex = sth.TreeSize - p.backtrack
-		if currentIndex < 0 {
-			currentIndex = 0
-		}
-	}
+	currentIndex := p.startIndex(sth.TreeSize)
 	slog.Info("poller initialized",
 		"log", p.logName,
 		"tree_size", sth.TreeSize,
@@ -120,56 +115,71 @@ func (p *Poller) Run(ctx context.Context) error {
 		default:
 		}
 
-		// Refresh tree head.
-		sth, err = p.client.GetSTH(ctx)
-		if err != nil {
-			slog.Warn("failed to get STH, will retry",
-				"log", p.logName, "error", err)
-			if err := p.sleep(ctx); err != nil {
-				return nil
-			}
-			continue
+		next, stop := p.pollOnce(ctx, currentIndex, &stats)
+		if stop {
+			return nil
 		}
-		stats.TreeSize = sth.TreeSize
-
-		// No new entries.
-		if currentIndex >= sth.TreeSize {
-			if err := p.sleep(ctx); err != nil {
-				return nil
-			}
-			continue
-		}
-
-		// Fetch entries in batches.
-		end := currentIndex + int64(p.batchSize) - 1
-		if end >= sth.TreeSize {
-			end = sth.TreeSize - 1
-		}
-
-		entries, err := p.client.GetEntries(ctx, currentIndex, end)
-		if err != nil {
-			slog.Warn("failed to get entries, will retry",
-				"log", p.logName, "start", currentIndex, "end", end, "error", err)
-			if err := p.sleep(ctx); err != nil {
-				return nil
-			}
-			continue
-		}
-
-		for _, entry := range entries {
-			p.processEntry(ctx, entry, &stats)
-		}
-
-		currentIndex = end + 1
-		stats.CurrentIndex = currentIndex
-
-		// Send stats update.
-		select {
-		case p.statsChan <- stats:
-		default:
-			// Don't block if nobody is listening.
-		}
+		currentIndex = next
 	}
+}
+
+// startIndex computes the entry index to begin polling from, applying the
+// configured backtrack and clamping to zero.
+func (p *Poller) startIndex(treeSize int64) int64 {
+	if p.backtrack <= 0 {
+		return treeSize
+	}
+	start := treeSize - p.backtrack
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+// pollOnce performs one polling iteration: it refreshes the tree head, fetches
+// and processes the next batch of entries, and publishes a stats update. It
+// returns the next index to poll and whether the loop should stop (the context
+// was cancelled).
+func (p *Poller) pollOnce(ctx context.Context, currentIndex int64, stats *PollStats) (next int64, stop bool) {
+	// Refresh tree head.
+	sth, err := p.client.GetSTH(ctx)
+	if err != nil {
+		slog.Warn("failed to get STH, will retry", "log", p.logName, "error", err)
+		return currentIndex, !p.sleep(ctx)
+	}
+	stats.TreeSize = sth.TreeSize
+
+	// No new entries.
+	if currentIndex >= sth.TreeSize {
+		return currentIndex, !p.sleep(ctx)
+	}
+
+	// Fetch entries in batches.
+	end := currentIndex + int64(p.batchSize) - 1
+	if end >= sth.TreeSize {
+		end = sth.TreeSize - 1
+	}
+
+	entries, err := p.client.GetEntries(ctx, currentIndex, end)
+	if err != nil {
+		slog.Warn("failed to get entries, will retry",
+			"log", p.logName, "start", currentIndex, "end", end, "error", err)
+		return currentIndex, !p.sleep(ctx)
+	}
+
+	for _, entry := range entries {
+		p.processEntry(ctx, entry, stats)
+	}
+
+	next = end + 1
+	stats.CurrentIndex = next
+
+	// Send stats update without blocking if nobody is listening.
+	select {
+	case p.statsChan <- *stats:
+	default:
+	}
+	return next, false
 }
 
 // processEntry parses a single CT log entry, extracts domains, scores them,
@@ -184,68 +194,81 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 	}
 
 	for _, d := range domains {
-		scored := p.scorer.Score(d, p.profile)
-		if scored.Score == 0 {
-			if p.discardChan != nil {
-				select {
-				case p.discardChan <- d:
-				default:
-				}
-			}
-			continue
+		if p.processDomain(ctx, d, domains, cert) {
+			stats.HitsFound++
 		}
+	}
+}
 
-		hit := domain.Hit{
-			Domain:        d,
-			Score:         scored.Score,
-			Severity:      scored.Severity,
-			Keywords:      scored.MatchedKeywords,
-			CTLog:         p.logName,
-			Profile:       p.profile.Name,
-			SANDomains:    domains,
-			CertNotBefore: cert.NotBefore,
-			CreatedAt:     time.Now(),
-		}
+// processDomain scores a single domain, streams scored hits to the live feed,
+// and persists those meeting the minimum-score threshold. It returns true when
+// a hit was persisted (so the caller can increment its stats counter).
+func (p *Poller) processDomain(ctx context.Context, d string, sanDomains []string, cert *x509.Certificate) bool {
+	scored := p.scorer.Score(d, p.profile)
+	if scored.Score == 0 {
+		p.publishDiscard(d)
+		return false
+	}
 
-		// Populate issuer fields from certificate.
-		if len(cert.Issuer.Organization) > 0 {
-			hit.Issuer = cert.Issuer.Organization[0]
-		}
-		hit.IssuerCN = cert.Issuer.CommonName
+	hit := domain.Hit{
+		Domain:        d,
+		Score:         scored.Score,
+		Severity:      scored.Severity,
+		Keywords:      scored.MatchedKeywords,
+		CTLog:         p.logName,
+		Profile:       p.profile.Name,
+		SANDomains:    sanDomains,
+		CertNotBefore: cert.NotBefore,
+		CreatedAt:     time.Now(),
+	}
+	if len(cert.Issuer.Organization) > 0 {
+		hit.Issuer = cert.Issuer.Organization[0]
+	}
+	hit.IssuerCN = cert.Issuer.CommonName
 
-		// Send all scored hits to the live feed for visibility.
-		select {
-		case p.hitChan <- hit:
-		default:
-		}
+	// Send all scored hits to the live feed for visibility.
+	select {
+	case p.hitChan <- hit:
+	default:
+	}
 
-		// Only persist hits meeting the minimum score threshold.
-		// Default (minScore=0) stores all scored hits; use --min-score
-		// to raise the bar and only keep high-confidence results.
-		threshold := p.minScore
-		if threshold == 0 {
-			threshold = 4
-		}
-		if scored.Score < threshold {
-			continue
-		}
+	// Only persist hits meeting the minimum score threshold. Default
+	// (minScore=0) stores all scored hits; --min-score raises the bar.
+	threshold := p.minScore
+	if threshold == 0 {
+		threshold = 4
+	}
+	if scored.Score < threshold {
+		return false
+	}
 
-		if err := p.store.UpsertHit(ctx, hit); err != nil {
-			slog.Warn("failed to upsert hit",
-				"domain", d, "error", err)
-			continue
-		}
+	if err := p.store.UpsertHit(ctx, hit); err != nil {
+		slog.Warn("failed to upsert hit", "domain", d, "error", err)
+		return false
+	}
+	return true
+}
 
-		stats.HitsFound++
+// publishDiscard reports a zero-scored domain to the discard feed without
+// blocking when no consumer is listening.
+func (p *Poller) publishDiscard(d string) {
+	if p.discardChan == nil {
+		return
+	}
+	select {
+	case p.discardChan <- d:
+	default:
 	}
 }
 
 // sleep waits for the poll interval or until the context is cancelled.
-func (p *Poller) sleep(ctx context.Context) error {
+// It returns false if the context was cancelled (the poller should stop),
+// and true if the full interval elapsed.
+func (p *Poller) sleep(ctx context.Context) bool {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return false
 	case <-time.After(p.pollInterval):
-		return nil
+		return true
 	}
 }

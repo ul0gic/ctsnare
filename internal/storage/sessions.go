@@ -53,12 +53,12 @@ func (d *DB) Stats(ctx context.Context) (domain.DBStats, error) {
 	for rows.Next() {
 		var severity string
 		var count int
-		if err := rows.Scan(&severity, &count); err != nil {
+		if err = rows.Scan(&severity, &count); err != nil {
 			return stats, fmt.Errorf("scanning severity count: %w", err)
 		}
 		stats.BySeverity[domain.Severity(severity)] = count
 	}
-	if err := rows.Err(); err != nil {
+	if err = rows.Err(); err != nil {
 		return stats, fmt.Errorf("iterating severity rows: %w", err)
 	}
 
