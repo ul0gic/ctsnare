@@ -62,6 +62,14 @@ type QueryFilter struct {
 	// Used for subdomain drill-down from the detail view.
 	// Empty string means no base domain filter.
 	BaseDomain string
+
+	// Domain filters hits to a tracked target using apex-plus-subdomain
+	// semantics: the row matches when its domain equals Domain OR is a subdomain
+	// of Domain (ends with "." + Domain). The value is normalized (lowercased,
+	// leading "*."/"." and trailing "." stripped) before matching. This mirrors
+	// domainutil.MatchesTrackTarget; a parity test enforces agreement between the
+	// Go matcher and the SQL predicate. Empty string means no domain filter.
+	Domain string
 }
 
 // DBStats contains aggregate statistics about stored hits.

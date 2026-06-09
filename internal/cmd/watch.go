@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/ul0gic/ctsnare/internal/config"
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/domainutil"
 	"github.com/ul0gic/ctsnare/internal/enrichment"
 	"github.com/ul0gic/ctsnare/internal/poller"
 	"github.com/ul0gic/ctsnare/internal/profile"
@@ -28,6 +29,7 @@ var (
 	watchPollInterval time.Duration
 	watchBacktrack    int64
 	watchMinScore     int
+	watchDomains      []string
 )
 
 var watchCmd = &cobra.Command{
@@ -42,11 +44,19 @@ By default, starts the interactive TUI dashboard. Use --headless
 for non-interactive mode (polling and storage only, suitable for
 servers and background processes).
 
+Domain-tracker mode: pass one or more --domain flags to store EVERY newly
+issued certificate for a target apex and all its subdomains, regardless of
+score or keywords. In this mode --min-score and keyword-profile gating have no
+effect. Pair with --session to tag the run, and --backtrack to catch recent
+issuance at startup.
+
 Examples:
   ctsnare watch
   ctsnare watch --profile crypto --session morning-run
   ctsnare watch --headless --poll-interval 10s
-  ctsnare watch --backtrack 1000`,
+  ctsnare watch --backtrack 1000
+  ctsnare watch --domain openai.com --domain anthropic.com --session brands
+  ctsnare watch --domain openai.com --backtrack 50000 --session openai`,
 	RunE: runWatch,
 }
 
@@ -58,6 +68,7 @@ func init() {
 	watchCmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0, "wait time between polls per log (default: 5s from config)")
 	watchCmd.Flags().Int64Var(&watchBacktrack, "backtrack", 0, "start N entries behind the current log tip for immediate results (default: 0, start at tip)")
 	watchCmd.Flags().IntVar(&watchMinScore, "min-score", 0, "minimum score to store a hit (default: 0, store all scored hits)")
+	watchCmd.Flags().StringArrayVar(&watchDomains, "domain", nil, "track an exact apex + all its subdomains, storing every matching cert (repeatable; enables tracker mode, ignores --min-score)")
 
 	rootCmd.AddCommand(watchCmd)
 }
@@ -105,12 +116,21 @@ func runWatch(_ *cobra.Command, _ []string) error {
 		"keywords", len(prof.Keywords),
 		"effective_skip_suffixes", len(prof.SkipSuffixes))
 
+	// Normalize any --domain targets. When non-empty, pollers run in
+	// tracker mode and store every matching cert regardless of score.
+	trackDomains := domainutil.NormalizeTrackTargets(watchDomains)
+	if len(trackDomains) > 0 {
+		slog.Info("domain-tracker mode enabled",
+			"targets", trackDomains,
+			"note", "--min-score and keyword gating ignored; storing all matching certs")
+	}
+
 	// Create channels for hit and stats streaming.
 	hitChan := make(chan domain.Hit, 256)
 	pollerStatsChan := make(chan poller.PollStats, 64)
 
 	// Create poller manager.
-	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack, cfg.MinScore)
+	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack, cfg.MinScore, watchSession, trackDomains)
 
 	// Discard channel streams zero-scored domain names for TUI activity feed.
 	discardChan := make(chan string, 256)

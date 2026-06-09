@@ -116,7 +116,7 @@ func TestManager_StartAndStop(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0, "", nil)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -156,7 +156,7 @@ func TestManager_ContextCancellationStopsAllPollers(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0, "", nil)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -222,7 +222,7 @@ func TestManager_MultipleLogConfigs(t *testing.T) {
 		PollInterval: 50 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0, "", nil)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 100)
@@ -252,7 +252,7 @@ func TestManager_EmptyLogConfig(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0, "", nil)
 
 	hitChan := make(chan domain.Hit, 10)
 	statsChan := make(chan PollStats, 10)
@@ -283,7 +283,7 @@ func TestManager_StopBeforeStart(t *testing.T) {
 		PollInterval: 100 * time.Millisecond,
 	}
 
-	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0)
+	mgr := NewManager(cfg, &mockScorer{}, &mockStore{}, &domain.Profile{Name: "test"}, 0, 0, "", nil)
 
 	// Stop without Start should not panic.
 	done := make(chan struct{})

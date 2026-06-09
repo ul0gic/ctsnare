@@ -23,6 +23,7 @@ var (
 	queryLimit      int
 	queryBookmarked bool
 	queryLiveOnly   bool
+	queryDomain     string
 )
 
 var queryCmd = &cobra.Command{
@@ -37,7 +38,8 @@ Examples:
   ctsnare query
   ctsnare query --severity HIGH --format json
   ctsnare query --keyword casino --since 12h
-  ctsnare query --keyword wallet --severity HIGH --since 24h --format json | jq '.domain'`,
+  ctsnare query --keyword wallet --severity HIGH --since 24h --format json | jq '.domain'
+  ctsnare query --domain openai.com --session openai`,
 	RunE: runQuery,
 }
 
@@ -46,6 +48,7 @@ func init() {
 	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score (HIGH=8+, MED=5-7, LOW=1-4)")
 	queryCmd.Flags().DurationVar(&querySince, "since", 0, `only show hits from within this duration (e.g., "1h", "24h", "7d")`)
 	queryCmd.Flags().StringVar(&queryTLD, "tld", "", `filter by TLD suffix (e.g., ".xyz" or "xyz")`)
+	queryCmd.Flags().StringVar(&queryDomain, "domain", "", "filter to an exact apex + all its subdomains (e.g., openai.com matches api.openai.com)")
 	queryCmd.Flags().StringVar(&querySession, "session", "", "filter by session tag set with 'ctsnare watch --session'")
 	queryCmd.Flags().StringVar(&querySeverity, "severity", "", "filter by severity: HIGH, MED, or LOW")
 	queryCmd.Flags().StringVar(&queryFormat, "format", "table", "output format: table (default), json (JSONL), or csv")
@@ -83,6 +86,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		TLD:      queryTLD,
 		Session:  querySession,
 		Severity: querySeverity,
+		Domain:   queryDomain,
 		Limit:    queryLimit,
 		SortBy:   "score",
 		SortDir:  "DESC",

@@ -126,6 +126,7 @@ ctsnare watch [flags]
 | `--poll-interval` | `5s` | How long to wait between polls per log (e.g., `1s`, `5s`, `30s`) |
 | `--backtrack` | `0` | Start N entries behind the current log tip for immediate results |
 | `--min-score` | `0` | Minimum score to store a hit (default: store all scored hits) |
+| `--domain` | _(none)_ | Track an exact apex **and all its subdomains**, storing every matching certificate. Repeatable. Enables tracker mode (see below) |
 
 Global flags available on all commands:
 
@@ -150,6 +151,44 @@ ctsnare watch --poll-interval 1s --batch-size 1024
 # Backtrack for immediate results
 ctsnare watch --backtrack 5000
 ```
+
+#### Domain-tracker mode (`--domain`)
+
+Pass one or more `--domain` flags to monitor newly issued certificates for a
+specific apex domain **and all of its subdomains**. This is distinct from
+keyword scoring: in tracker mode ctsnare stores **every** matching certificate
+unconditionally, regardless of score or keyword profile.
+
+```bash
+# Track a single brand (apex + every subdomain)
+ctsnare watch --domain openai.com --session openai
+
+# Track several brands at once (repeat the flag)
+ctsnare watch --domain openai.com --domain anthropic.com --session brands
+
+# Catch recent issuance at startup, then continue live
+ctsnare watch --domain openai.com --backtrack 50000 --session openai
+```
+
+**Matching is exact apex + subdomains.** `--domain openai.com` matches
+`openai.com`, `api.openai.com`, and `login.openai.com`, but **not**
+`notopenai.com` or `openai.com.evil.com` (lookalikes and suffix traps are
+rejected). Use the keyword profiles for fuzzy/lookalike detection; `--domain`
+is for tracking a domain you actually own or care about precisely.
+
+Notes:
+
+- **`--min-score` and keyword-profile gating have no effect** in tracker mode —
+  matching certificates are always stored. `--profile` may still be set (it
+  populates informational score/keyword fields) but is not required.
+- Stored rows are tagged with the profile name `domain-track` so they are
+  attributable. **Pair with `--session`** to group a tracking run for later
+  `query --session` filtering.
+- **`--backtrack` counts log ENTRIES, not time.** It is the fastest way to get
+  immediate results for a tracked domain at startup. CT logs ingest at very high
+  volume, so backtrack is best for catching *recent* issuance, not deep
+  historical lookup — for a domain's full certificate history use
+  [crt.sh](https://crt.sh) instead.
 
 **TUI keybindings:**
 
@@ -198,6 +237,7 @@ ctsnare query [flags]
 | `--severity` | _(none)_ | Filter by severity: `HIGH`, `MED`, or `LOW` |
 | `--since` | _(none)_ | Only hits from this duration ago (e.g., `1h`, `24h`, `7d`) |
 | `--tld` | _(none)_ | Filter by TLD suffix (e.g., `.xyz`, `top`) |
+| `--domain` | _(none)_ | Filter to an exact apex **and all its subdomains** (e.g., `openai.com` matches `api.openai.com` but not `notopenai.com`) |
 | `--session` | _(none)_ | Filter hits by session tag |
 | `--live-only` | `false` | Show only domains that responded to HTTP liveness probe |
 | `--bookmarked` | `false` | Show only bookmarked hits |
@@ -221,6 +261,9 @@ ctsnare query --live-only --severity HIGH
 
 # All hits from a named session, CSV for spreadsheet import
 ctsnare query --session midnight-run --format csv > midnight-run.csv
+
+# Every tracked certificate for a domain and its subdomains
+ctsnare query --domain openai.com --session openai
 
 # Composable filter for threat hunting
 ctsnare query --keyword metamask --severity HIGH --since 24h --format json | jq '.domain'
@@ -433,6 +476,9 @@ keywords       = ["pump", "rug", "honeypot", "presale"]
 ctsnare watch --profile brand
 ctsnare watch --profile crypto-extended
 ```
+
+All snake_case keys above (`name`, `keywords`, `suspicious_tlds`,
+`skip_suffixes`, `description`) are honored exactly as written.
 
 ---
 

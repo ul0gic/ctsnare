@@ -185,6 +185,22 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 		}
 	}
 
+	where, args = appendMatchPredicates(filter, where, args)
+
+	if pred := bookmarkedPredicate(filter.Bookmarked); pred != "" {
+		where = append(where, pred)
+	}
+	if filter.LiveOnly {
+		where = append(where, "is_live = 1")
+	}
+	return where, args
+}
+
+// appendMatchPredicates appends the substring/range/domain-shape predicates
+// (keyword, score floor, time window, TLD suffix, domain-tracking) to the given
+// where/args slices and returns the extended slices. Splitting these out of
+// buildWhereClause keeps each function within the cyclomatic-complexity budget.
+func appendMatchPredicates(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
 	if filter.Keyword != "" {
 		where = append(where, "keywords LIKE ?")
 		args = append(args, "%"+filter.Keyword+"%")
@@ -206,13 +222,27 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 		where = append(where, "domain LIKE ?")
 		args = append(args, "%"+tld)
 	}
-	if pred := bookmarkedPredicate(filter.Bookmarked); pred != "" {
+	if pred, target := domainTrackPredicate(filter.Domain); pred != "" {
 		where = append(where, pred)
-	}
-	if filter.LiveOnly {
-		where = append(where, "is_live = 1")
+		args = append(args, target, "%."+target)
 	}
 	return where, args
+}
+
+// domainTrackPredicate builds the apex-plus-subdomain SQL predicate for a
+// domain-tracking filter, mirroring domainutil.MatchesTrackTarget: a row matches
+// when its domain equals the normalized target OR is a subdomain of it. It
+// returns an empty predicate when the target normalizes to "" (no filter).
+//
+// The "." in the LIKE pattern is literal; domain names contain no LIKE wildcards
+// (% or _), and both operands are bound as parameters by the caller — never
+// concatenated into the SQL string.
+func domainTrackPredicate(domainFilter string) (predicate, target string) {
+	target = domainutil.NormalizeTrackTarget(domainFilter)
+	if target == "" {
+		return "", ""
+	}
+	return "(LOWER(domain) = ? OR LOWER(domain) LIKE ?)", target
 }
 
 // bookmarkedPredicate maps the tri-state bookmark filter to a SQL predicate.

@@ -8,7 +8,12 @@ import (
 	"time"
 
 	"github.com/ul0gic/ctsnare/internal/domain"
+	"github.com/ul0gic/ctsnare/internal/domainutil"
 )
+
+// trackProfileName marks hits stored by domain-tracker mode so they are
+// attributable and distinguishable from keyword-profile hits.
+const trackProfileName = "domain-track"
 
 // PollStats tracks per-log polling progress and throughput.
 // One PollStats value is emitted per CT log after each batch of entries is processed.
@@ -44,6 +49,15 @@ type Poller struct {
 	discardChan  chan<- string
 	backtrack    int64
 	minScore     int
+	// session tags every stored hit so a run can be grouped and queried later
+	// via --session. Empty means hits are stored without a session tag.
+	session string
+	// trackDomains holds normalized apex targets for tracker mode. When
+	// non-empty, the poller stores every certificate whose domain matches a
+	// target (apex + subdomains), unconditionally, and fast-paths non-matches.
+	// Read-only after construction, so it is safe to share across the per-log
+	// poller goroutines without locking.
+	trackDomains []string
 }
 
 // NewPoller creates a poller for a single CT log endpoint. The backtrack
@@ -65,6 +79,8 @@ func NewPoller(
 	discardChan chan<- string,
 	backtrack int64,
 	minScore int,
+	session string,
+	trackDomains []string,
 ) *Poller {
 	return &Poller{
 		client:       NewCTLogClient(logURL),
@@ -79,6 +95,8 @@ func NewPoller(
 		discardChan:  discardChan,
 		backtrack:    backtrack,
 		minScore:     minScore,
+		session:      session,
+		trackDomains: trackDomains,
 	}
 }
 
@@ -200,10 +218,47 @@ func (p *Poller) processEntry(ctx context.Context, entry domain.CTLogEntry, stat
 	}
 }
 
-// processDomain scores a single domain, streams scored hits to the live feed,
-// and persists those meeting the minimum-score threshold. It returns true when
-// a hit was persisted (so the caller can increment its stats counter).
+// processDomain routes a single domain through the active processing mode.
+// In tracker mode (trackDomains non-empty) it stores every matching domain
+// unconditionally; otherwise it applies the keyword-scoring path. It returns
+// true when a hit was persisted (so the caller can increment its stats counter).
 func (p *Poller) processDomain(ctx context.Context, d string, sanDomains []string, cert *x509.Certificate) bool {
+	if len(p.trackDomains) > 0 {
+		return p.processTracked(ctx, d, sanDomains, cert)
+	}
+	return p.processScored(ctx, d, sanDomains, cert)
+}
+
+// processTracked handles tracker mode: non-matching domains take a fast path
+// (no scoring, no feed, no store); a domain matching any tracked target is
+// scored for informational fields, streamed to the feed, and stored
+// unconditionally — bypassing minScore, the score==0 short-circuit, and
+// skip-suffix filtering.
+func (p *Poller) processTracked(ctx context.Context, d string, sanDomains []string, cert *x509.Certificate) bool {
+	if !p.matchesTrackedDomain(d) {
+		return false
+	}
+
+	scored := p.scorer.Score(d, p.profile)
+	hit := buildTrackedHit(d, sanDomains, cert, p.logName, p.session, scored)
+
+	// Surface the tracked hit on the live feed for visibility.
+	select {
+	case p.hitChan <- hit:
+	default:
+	}
+
+	if err := p.store.UpsertHit(ctx, hit); err != nil {
+		slog.Warn("failed to upsert tracked hit", "domain", d, "error", err)
+		return false
+	}
+	return true
+}
+
+// processScored is the keyword-scoring path: domains are scored against the
+// profile, streamed to the feed, and persisted only when they meet the minimum
+// score threshold.
+func (p *Poller) processScored(ctx context.Context, d string, sanDomains []string, cert *x509.Certificate) bool {
 	scored := p.scorer.Score(d, p.profile)
 	if scored.Score == 0 {
 		p.publishDiscard(d)
@@ -217,6 +272,7 @@ func (p *Poller) processDomain(ctx context.Context, d string, sanDomains []strin
 		Keywords:      scored.MatchedKeywords,
 		CTLog:         p.logName,
 		Profile:       p.profile.Name,
+		Session:       p.session,
 		SANDomains:    sanDomains,
 		CertNotBefore: cert.NotBefore,
 		CreatedAt:     time.Now(),
@@ -247,6 +303,35 @@ func (p *Poller) processDomain(ctx context.Context, d string, sanDomains []strin
 		return false
 	}
 	return true
+}
+
+// matchesTrackedDomain reports whether d matches any configured tracking target
+// (apex + subdomains). The target slice is read-only, so this is lock-free.
+func (p *Poller) matchesTrackedDomain(d string) bool {
+	return domainutil.MatchesAnyTrackTarget(d, p.trackDomains)
+}
+
+// buildTrackedHit assembles a Hit for a tracker-mode match. Scoring fields are
+// informational only; the row is tagged with the "domain-track" profile marker
+// so stored rows are attributable to tracker mode.
+func buildTrackedHit(d string, sanDomains []string, cert *x509.Certificate, logName, session string, scored domain.ScoredDomain) domain.Hit {
+	hit := domain.Hit{
+		Domain:        d,
+		Score:         scored.Score,
+		Severity:      scored.Severity,
+		Keywords:      scored.MatchedKeywords,
+		CTLog:         logName,
+		Profile:       trackProfileName,
+		Session:       session,
+		SANDomains:    sanDomains,
+		CertNotBefore: cert.NotBefore,
+		CreatedAt:     time.Now(),
+	}
+	if len(cert.Issuer.Organization) > 0 {
+		hit.Issuer = cert.Issuer.Organization[0]
+	}
+	hit.IssuerCN = cert.Issuer.CommonName
+	return hit
 }
 
 // publishDiscard reports a zero-scored domain to the discard feed without

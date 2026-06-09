@@ -17,21 +17,32 @@ type Manager struct {
 	profile   *domain.Profile
 	backtrack int64
 	minScore  int
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	// session tags every stored hit so a run can be grouped and queried later
+	// via --session. Empty means hits are stored without a session tag.
+	session string
+	// trackDomains holds normalized apex targets for tracker mode, passed to
+	// every poller. Empty means keyword-scoring mode.
+	trackDomains []string
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 // NewManager creates a poller manager that will launch one poller per CT log
 // from the config. The backtrack parameter controls how many entries behind
-// the current log tip each poller starts at.
-func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64, minScore int) *Manager {
+// the current log tip each poller starts at. When trackDomains is non-empty,
+// every poller runs in domain-tracker mode (storing all matching certificates
+// unconditionally) instead of keyword-scoring mode. The session tag, if
+// non-empty, is recorded on every stored hit for later --session querying.
+func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64, minScore int, session string, trackDomains []string) *Manager {
 	return &Manager{
-		cfg:       cfg,
-		scorer:    scorer,
-		store:     store,
-		profile:   profile,
-		backtrack: backtrack,
-		minScore:  minScore,
+		cfg:          cfg,
+		scorer:       scorer,
+		store:        store,
+		profile:      profile,
+		backtrack:    backtrack,
+		minScore:     minScore,
+		session:      session,
+		trackDomains: trackDomains,
 	}
 }
 
@@ -57,6 +68,8 @@ func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsCha
 			discardChan,
 			m.backtrack,
 			m.minScore,
+			m.session,
+			m.trackDomains,
 		)
 
 		m.wg.Add(1)
