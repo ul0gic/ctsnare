@@ -43,68 +43,57 @@ func TestScoreTyposquat(t *testing.T) {
 	tests := []struct {
 		name        string
 		domain      string
-		wantScore   int
 		wantMatched []string
 	}{
 		{
 			name:        "exact substring is not a typosquat",
 			domain:      "paypal-login.com",
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "one-edit substitution scores",
 			domain:      "paypol.com",
-			wantScore:   3,
 			wantMatched: []string{"~paypal"},
 		},
 		{
 			name:        "transposition scores",
 			domain:      "paypla.com",
-			wantScore:   3,
 			wantMatched: []string{"~paypal"},
 		},
 		{
 			name:        "two edits on long brand scores",
 			domain:      "metmsk.com", // metamask -> metmsk = distance 2, len 8 accepts <= 2
-			wantScore:   3,
 			wantMatched: []string{"~metamask"},
 		},
 		{
 			name:        "three edits on long brand rejected",
 			domain:      "mtmsk.com", // metamask -> mtmsk = distance 3 -> reject
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "deletion on long brand scores",
 			domain:      "metmask.com", // metamask -> metmask = distance 1
-			wantScore:   3,
 			wantMatched: []string{"~metamask"},
 		},
 		{
 			name:        "short brand below min length not fuzzy matched",
 			domain:      "hsbd.com", // hsbc is len 4 -> never fuzzy matched
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "unrelated domain no score",
 			domain:      "example.com",
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "subdomain label matched",
 			domain:      "paypol.evil.xyz",
-			wantScore:   3,
 			wantMatched: []string{"~paypal"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score, matched := scoreTyposquat(tt.domain, brand)
-			assert.Equal(t, tt.wantScore, score)
+			matched := scoreTyposquat(tt.domain, brand)
 			assert.Equal(t, tt.wantMatched, matched)
 		})
 	}
@@ -123,8 +112,8 @@ func TestScoreTyposquat_FalsePositiveGuard(t *testing.T) {
 		"developer.mozilla.org",
 	}
 	for _, d := range legit {
-		score, matched := scoreTyposquat(d, brand)
-		assert.Equal(t, 0, score, "legit domain %q should not typosquat-match (matched=%v)", d, matched)
+		matched := scoreTyposquat(d, brand)
+		assert.Nil(t, matched, "legit domain %q should not typosquat-match (matched=%v)", d, matched)
 	}
 }
 

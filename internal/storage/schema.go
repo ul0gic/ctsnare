@@ -69,3 +69,17 @@ ALTER TABLE hits ADD COLUMN base_domain TEXT DEFAULT '';
 const migrationV3IndexSQL = `
 CREATE INDEX IF NOT EXISTS idx_hits_base_domain ON hits (base_domain);
 `
+
+// migrationV4SQL adds the signals and category columns. signals stores the
+// per-heuristic breakdown as a JSON array (mirroring keywords); category stores
+// the strongest-match profile bucket. Both are added via ALTER TABLE with
+// idempotent "duplicate column name" handling in runMigrationV4.
+const migrationV4SQL = `
+ALTER TABLE hits ADD COLUMN signals TEXT DEFAULT '[]';
+ALTER TABLE hits ADD COLUMN category TEXT DEFAULT '';
+`
+
+// migrationV4IndexSQL indexes category for fast --category filtering.
+const migrationV4IndexSQL = `
+CREATE INDEX IF NOT EXISTS idx_hits_category ON hits (category);
+`

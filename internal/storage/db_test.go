@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -78,6 +79,95 @@ func TestInsertAndQuery_Roundtrip(t *testing.T) {
 	assert.Equal(t, hit.Session, got.Session)
 	assert.False(t, got.CreatedAt.IsZero())
 	assert.False(t, got.UpdatedAt.IsZero())
+}
+
+func TestInsertAndQuery_SignalsAndCategory(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	hit := testHit("paypal-login.icu", 9, domain.SeverityHigh)
+	hit.Signals = []string{"brand-keyword", "burner-tld", "generic-keyword"}
+	hit.Category = "phishing"
+	require.NoError(t, db.InsertHit(ctx, hit))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, hit.Signals, hits[0].Signals)
+	assert.Equal(t, "phishing", hits[0].Category)
+}
+
+// TestMigration_IdempotentReopen proves the schema migrations are safe to
+// re-run: opening an existing database a second time must not error and must
+// preserve the signals/category data written under the first open. ALTER TABLE
+// ADD COLUMN is the migration mechanism, made idempotent via duplicate-column
+// detection, so a re-open is the equivalent of "down then up yields identical
+// schema" for this additive-only, pre-1.0 throwaway-DB design.
+func TestMigration_IdempotentReopen(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "reopen.db")
+
+	db1, err := NewDB(dbPath)
+	require.NoError(t, err)
+	hit := testHit("evil.tk", 6, domain.SeverityMed)
+	hit.Signals = []string{"burner-tld"}
+	hit.Category = "crypto"
+	require.NoError(t, db1.UpsertHit(ctx, hit))
+	require.NoError(t, db1.Close())
+
+	// Reopen — migrations run again and must be no-ops.
+	db2, err := NewDB(dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+
+	hits, err := db2.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, []string{"burner-tld"}, hits[0].Signals)
+	assert.Equal(t, "crypto", hits[0].Category)
+}
+
+// TestMigration_UpgradeFromBaseSchema proves a database created with only the
+// original base schema (no signals/category/enrichment columns) is migrated
+// forward on open, with pre-existing rows preserved and the new columns
+// readable at their defaults.
+func TestMigration_UpgradeFromBaseSchema(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+
+	// Hand-build a legacy DB: base schema only, one pre-existing row.
+	raw, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = raw.ExecContext(ctx, schemaSQL)
+	require.NoError(t, err)
+	_, err = raw.ExecContext(ctx,
+		"INSERT INTO hits (domain, score, severity, keywords, cert_not_before) VALUES (?, ?, ?, ?, ?)",
+		"legacy.tk", 6, "MED", `["bitcoin"]`, "2026-01-15T00:00:00Z")
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+
+	// Open through NewDB — all migrations should apply cleanly.
+	db, err := NewDB(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "legacy.tk", hits[0].Domain)
+	assert.Empty(t, hits[0].Signals, "new column defaults to empty array")
+	assert.Empty(t, hits[0].Category, "new column defaults to empty string")
+	assert.Equal(t, []string{"bitcoin"}, hits[0].Keywords)
+
+	// And a fresh write with signals round-trips.
+	hit := testHit("new.tk", 9, domain.SeverityHigh)
+	hit.Signals = []string{"burner-tld", "numeric-sld"}
+	hit.Category = "crypto"
+	require.NoError(t, db.UpsertHit(ctx, hit))
+	got, err := db.QueryHits(ctx, domain.QueryFilter{Domain: "new.tk"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, []string{"burner-tld", "numeric-sld"}, got[0].Signals)
 }
 
 func TestUpsert_UpdatesExistingDomain(t *testing.T) {

@@ -17,47 +17,24 @@ const timestampFormat = "2006-01-02T15:04:05Z"
 // UpsertHit inserts or replaces a hit keyed on domain (deduplication).
 // Keywords, SANDomains, and ResolvedIPs are stored as JSON arrays.
 func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
-	keywords, err := json.Marshal(hit.Keywords)
+	cols, err := marshalHitColumns(hit)
 	if err != nil {
-		return fmt.Errorf("marshaling keywords: %w", err)
+		return err
 	}
-	sanDomains, err := json.Marshal(hit.SANDomains)
-	if err != nil {
-		return fmt.Errorf("marshaling SAN domains: %w", err)
-	}
-	resolvedIPs, err := json.Marshal(hit.ResolvedIPs)
-	if err != nil {
-		return fmt.Errorf("marshaling resolved IPs: %w", err)
-	}
-
 	now := time.Now().UTC().Format(timestampFormat)
 
-	isLive := 0
-	if hit.IsLive {
-		isLive = 1
-	}
-	bookmarked := 0
-	if hit.Bookmarked {
-		bookmarked = 1
-	}
-
-	var liveCheckedAt interface{}
-	if !hit.LiveCheckedAt.IsZero() {
-		liveCheckedAt = hit.LiveCheckedAt.UTC().Format(timestampFormat)
-	}
-
-	baseDomain := domainutil.BaseDomain(hit.Domain)
-
 	const query = `
-		INSERT INTO hits (domain, score, severity, keywords, issuer, issuer_cn, san_domains,
+		INSERT INTO hits (domain, score, severity, keywords, signals, category, issuer, issuer_cn, san_domains,
 			cert_not_before, ct_log, profile, session, created_at, updated_at,
 			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked,
 			base_domain)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(domain) DO UPDATE SET
 			score = excluded.score,
 			severity = excluded.severity,
 			keywords = excluded.keywords,
+			signals = excluded.signals,
+			category = excluded.category,
 			issuer = excluded.issuer,
 			issuer_cn = excluded.issuer_cn,
 			san_domains = excluded.san_domains,
@@ -73,23 +50,25 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 		hit.Domain,
 		hit.Score,
 		string(hit.Severity),
-		string(keywords),
+		cols.keywords,
+		cols.signals,
+		hit.Category,
 		hit.Issuer,
 		hit.IssuerCN,
-		string(sanDomains),
+		cols.sanDomains,
 		hit.CertNotBefore.UTC().Format(timestampFormat),
 		hit.CTLog,
 		hit.Profile,
 		hit.Session,
 		now,
 		now,
-		isLive,
-		string(resolvedIPs),
+		cols.isLive,
+		cols.resolvedIPs,
 		hit.HostingProvider,
 		hit.HTTPStatus,
-		liveCheckedAt,
-		bookmarked,
-		baseDomain,
+		cols.liveCheckedAt,
+		cols.bookmarked,
+		domainutil.BaseDomain(hit.Domain),
 	)
 	if err != nil {
 		return fmt.Errorf("upserting hit for %s: %w", hit.Domain, err)
@@ -97,68 +76,95 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 	return nil
 }
 
-// InsertHit inserts a new hit. Returns an error if the domain already exists.
-func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
+// hitColumns holds the serialized scalar forms of a Hit's compound fields,
+// shared by InsertHit and UpsertHit to avoid duplicating the marshaling logic.
+type hitColumns struct {
+	keywords      string
+	signals       string
+	sanDomains    string
+	resolvedIPs   string
+	isLive        int
+	bookmarked    int
+	liveCheckedAt interface{}
+}
+
+// marshalHitColumns serializes a Hit's JSON-array and boolean fields into the
+// scalar forms SQLite stores.
+func marshalHitColumns(hit domain.Hit) (hitColumns, error) {
 	keywords, err := json.Marshal(hit.Keywords)
 	if err != nil {
-		return fmt.Errorf("marshaling keywords: %w", err)
+		return hitColumns{}, fmt.Errorf("marshaling keywords: %w", err)
+	}
+	signals, err := json.Marshal(hit.Signals)
+	if err != nil {
+		return hitColumns{}, fmt.Errorf("marshaling signals: %w", err)
 	}
 	sanDomains, err := json.Marshal(hit.SANDomains)
 	if err != nil {
-		return fmt.Errorf("marshaling SAN domains: %w", err)
+		return hitColumns{}, fmt.Errorf("marshaling SAN domains: %w", err)
 	}
 	resolvedIPs, err := json.Marshal(hit.ResolvedIPs)
 	if err != nil {
-		return fmt.Errorf("marshaling resolved IPs: %w", err)
+		return hitColumns{}, fmt.Errorf("marshaling resolved IPs: %w", err)
 	}
 
+	c := hitColumns{
+		keywords:    string(keywords),
+		signals:     string(signals),
+		sanDomains:  string(sanDomains),
+		resolvedIPs: string(resolvedIPs),
+	}
+	if hit.IsLive {
+		c.isLive = 1
+	}
+	if hit.Bookmarked {
+		c.bookmarked = 1
+	}
+	if !hit.LiveCheckedAt.IsZero() {
+		c.liveCheckedAt = hit.LiveCheckedAt.UTC().Format(timestampFormat)
+	}
+	return c, nil
+}
+
+// InsertHit inserts a new hit. Returns an error if the domain already exists.
+func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
+	cols, err := marshalHitColumns(hit)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(timestampFormat)
 
-	isLive := 0
-	if hit.IsLive {
-		isLive = 1
-	}
-	bookmarked := 0
-	if hit.Bookmarked {
-		bookmarked = 1
-	}
-
-	var liveCheckedAt interface{}
-	if !hit.LiveCheckedAt.IsZero() {
-		liveCheckedAt = hit.LiveCheckedAt.UTC().Format(timestampFormat)
-	}
-
-	baseDomain := domainutil.BaseDomain(hit.Domain)
-
 	const query = `
-		INSERT INTO hits (domain, score, severity, keywords, issuer, issuer_cn, san_domains,
+		INSERT INTO hits (domain, score, severity, keywords, signals, category, issuer, issuer_cn, san_domains,
 			cert_not_before, ct_log, profile, session, created_at, updated_at,
 			is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked,
 			base_domain)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = d.db.ExecContext(ctx, query,
 		hit.Domain,
 		hit.Score,
 		string(hit.Severity),
-		string(keywords),
+		cols.keywords,
+		cols.signals,
+		hit.Category,
 		hit.Issuer,
 		hit.IssuerCN,
-		string(sanDomains),
+		cols.sanDomains,
 		hit.CertNotBefore.UTC().Format(timestampFormat),
 		hit.CTLog,
 		hit.Profile,
 		hit.Session,
 		now,
 		now,
-		isLive,
-		string(resolvedIPs),
+		cols.isLive,
+		cols.resolvedIPs,
 		hit.HostingProvider,
 		hit.HTTPStatus,
-		liveCheckedAt,
-		bookmarked,
-		baseDomain,
+		cols.liveCheckedAt,
+		cols.bookmarked,
+		domainutil.BaseDomain(hit.Domain),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting hit for %s: %w", hit.Domain, err)
@@ -292,7 +298,7 @@ func orderClause(filter domain.QueryFilter) string {
 func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain.Hit, error) {
 	where, args := buildWhereClause(filter)
 
-	query := "SELECT domain, score, severity, keywords, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked, base_domain FROM hits"
+	query := "SELECT domain, score, severity, keywords, signals, category, issuer, issuer_cn, san_domains, cert_not_before, ct_log, profile, session, created_at, updated_at, is_live, resolved_ips, hosting_provider, http_status, live_checked_at, bookmarked, base_domain FROM hits"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -342,6 +348,7 @@ func scanHit(rows interface {
 	var hit domain.Hit
 	var severity string
 	var keywordsJSON string
+	var signalsJSON string
 	var sanDomainsJSON string
 	var certNotBeforeStr string
 	var createdAtStr string
@@ -356,6 +363,8 @@ func scanHit(rows interface {
 		&hit.Score,
 		&severity,
 		&keywordsJSON,
+		&signalsJSON,
+		&hit.Category,
 		&hit.Issuer,
 		&hit.IssuerCN,
 		&sanDomainsJSON,
@@ -390,6 +399,11 @@ func scanHit(rows interface {
 
 	if err := json.Unmarshal([]byte(keywordsJSON), &hit.Keywords); err != nil {
 		return domain.Hit{}, fmt.Errorf("unmarshaling keywords: %w", err)
+	}
+	if signalsJSON != "" {
+		if err := json.Unmarshal([]byte(signalsJSON), &hit.Signals); err != nil {
+			return domain.Hit{}, fmt.Errorf("unmarshaling signals: %w", err)
+		}
 	}
 	if err := json.Unmarshal([]byte(sanDomainsJSON), &hit.SANDomains); err != nil {
 		return domain.Hit{}, fmt.Errorf("unmarshaling SAN domains: %w", err)

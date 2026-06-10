@@ -148,11 +148,15 @@ func TestEngine_Score_EmptyProfile(t *testing.T) {
 	engine := NewEngine()
 	profile := &domain.Profile{}
 
-	// With empty profile, no keywords match but structural heuristics
-	// (hyphen density) still apply: "bitcoin-wallet-login" has 2 hyphens.
+	// With an empty profile, no keywords match but structural heuristics still
+	// apply: "bitcoin-wallet-login" has 2 hyphens (+1) and ".xyz" is a global
+	// cheap-tier TLD (+1) — the tier system is global, not per-profile, so it
+	// fires regardless of the (empty) profile's own suspicious_tlds.
 	result := engine.Score("bitcoin-wallet-login.xyz", profile)
-	assert.Equal(t, 1, result.Score)
+	assert.Equal(t, 2, result.Score)
 	assert.Empty(t, result.MatchedKeywords)
+	assert.Contains(t, result.Signals, SignalSuspiciousTLD)
+	assert.Contains(t, result.Signals, SignalHyphens)
 }
 
 func TestEngine_Score_EmptyProfile_SimpleDomain(t *testing.T) {

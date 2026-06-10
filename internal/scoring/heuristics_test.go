@@ -11,190 +11,137 @@ func TestMatchKeywords(t *testing.T) {
 		name        string
 		domain      string
 		keywords    []string
-		pointsEach  int
-		wantScore   int
 		wantMatched []string
 	}{
 		{
-			name:        "single brand keyword match scores per-tier weight",
+			name:        "single brand keyword match",
 			domain:      "bitcoin-shop.com",
 			keywords:    []string{"bitcoin"},
-			pointsEach:  3,
-			wantScore:   3,
 			wantMatched: []string{"bitcoin"},
 		},
 		{
-			name:        "single generic keyword match scores per-tier weight",
+			name:        "single generic keyword match",
 			domain:      "login-shop.com",
 			keywords:    []string{"login"},
-			pointsEach:  1,
-			wantScore:   1,
 			wantMatched: []string{"login"},
 		},
 		{
 			name:        "multiple generic keyword matches",
 			domain:      "bitcoin-wallet-login.com",
 			keywords:    []string{"bitcoin", "wallet", "login"},
-			pointsEach:  1,
-			wantScore:   3,
 			wantMatched: []string{"bitcoin", "wallet", "login"},
 		},
 		{
 			name:        "case insensitive matching",
 			domain:      "BITCOIN-WALLET.com",
 			keywords:    []string{"bitcoin", "wallet"},
-			pointsEach:  3,
-			wantScore:   6,
 			wantMatched: []string{"bitcoin", "wallet"},
 		},
 		{
-			name:        "mixed case keywords and domain",
+			name:        "mixed case keywords and domain with short keyword on boundary",
 			domain:      "Bitcoin-Shop.COM",
-			keywords:    []string{"BITCOIN", "Shop"},
-			pointsEach:  1,
-			wantScore:   2,
+			keywords:    []string{"BITCOIN", "Shop"}, // "shop" is len 4 -> boundary match
 			wantMatched: []string{"BITCOIN", "Shop"},
 		},
 		{
-			name:        "partial match within domain",
+			name:        "long keyword partial match within label",
 			domain:      "mybitcoindex.com",
-			keywords:    []string{"bitcoin"},
-			pointsEach:  3,
-			wantScore:   3,
+			keywords:    []string{"bitcoin"}, // len 7 -> substring semantics
 			wantMatched: []string{"bitcoin"},
 		},
 		{
 			name:        "no match",
 			domain:      "example.com",
 			keywords:    []string{"bitcoin", "wallet"},
-			pointsEach:  3,
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "empty domain",
 			domain:      "",
 			keywords:    []string{"bitcoin"},
-			pointsEach:  3,
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "empty keywords list",
 			domain:      "bitcoin.com",
 			keywords:    []string{},
-			pointsEach:  3,
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "nil keywords list",
 			domain:      "bitcoin.com",
 			keywords:    nil,
-			pointsEach:  3,
-			wantScore:   0,
 			wantMatched: nil,
 		},
 		{
 			name:        "keyword is entire domain",
 			domain:      "bitcoin",
 			keywords:    []string{"bitcoin"},
-			pointsEach:  3,
-			wantScore:   3,
 			wantMatched: []string{"bitcoin"},
 		},
 		{
 			name:        "overlapping keyword substrings",
 			domain:      "wallet-walletconnect.com",
 			keywords:    []string{"wallet"},
-			pointsEach:  1,
-			wantScore:   1,
 			wantMatched: []string{"wallet"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score, matched := matchKeywords(tt.domain, tt.keywords, tt.pointsEach)
-			assert.Equal(t, tt.wantScore, score)
+			matched := matchKeywords(tt.domain, tt.keywords, 0)
 			assert.Equal(t, tt.wantMatched, matched)
 		})
 	}
 }
 
-func TestScoreTLD(t *testing.T) {
+// TestMatchKeywords_ShortKeywordBoundary proves short keywords (<= 4 chars)
+// match only on label/token boundaries, killing the substring false positives
+// observed on the live CT firehose while keeping legitimate matches.
+func TestMatchKeywords_ShortKeywordBoundary(t *testing.T) {
+	brand := []string{"dhl"}
+
+	// Real false positive observed live: "dhl" buried inside a random label.
+	gibberish := "mvjdffvpgfedhljmrsqpqx.fis.cmh.globaltest.prod.sadbirds.aws.dev"
+	assert.Nil(t, matchKeywords(gibberish, brand, 0),
+		"short keyword must not substring-match gibberish")
+
+	// True positives: token-boundary hits must still match.
+	assert.Equal(t, []string{"dhl"}, matchKeywords("dhl-tracking.icu", brand, 0),
+		"hyphen boundary should match")
+	assert.Equal(t, []string{"dhl"}, matchKeywords("track.dhl.evil.com", brand, 0),
+		"dot boundaries should match")
+	assert.Equal(t, []string{"dhl"}, matchKeywords("dhl.com", brand, 0),
+		"label-as-whole should match")
+
+	// Longer keyword keeps substring semantics.
+	assert.Equal(t, []string{"paypal"}, matchKeywords("mypaypaltest.com", []string{"paypal"}, 0),
+		"long keyword keeps substring match")
+}
+
+func TestScoreTLDTier(t *testing.T) {
+	engine := NewEngine() // built-in tier defaults
+
 	tests := []struct {
-		name           string
-		domain         string
-		suspiciousTLDs []string
-		want           int
+		name        string
+		domain      string
+		profileTLDs []string
+		wantPoints  int
+		wantSignal  string
 	}{
-		{
-			name:           "exact TLD match",
-			domain:         "evil.xyz",
-			suspiciousTLDs: []string{".xyz", ".top"},
-			want:           1,
-		},
-		{
-			name:           "subdomain of suspicious TLD",
-			domain:         "sub.evil.xyz",
-			suspiciousTLDs: []string{".xyz"},
-			want:           1,
-		},
-		{
-			name:           "no match",
-			domain:         "example.com",
-			suspiciousTLDs: []string{".xyz", ".top"},
-			want:           0,
-		},
-		{
-			name:           "case insensitive TLD",
-			domain:         "evil.XYZ",
-			suspiciousTLDs: []string{".xyz"},
-			want:           1,
-		},
-		{
-			name:           "case insensitive suspicious TLD list",
-			domain:         "evil.xyz",
-			suspiciousTLDs: []string{".XYZ"},
-			want:           1,
-		},
-		{
-			name:           "empty suspicious TLD list",
-			domain:         "evil.xyz",
-			suspiciousTLDs: []string{},
-			want:           0,
-		},
-		{
-			name:           "nil suspicious TLD list",
-			domain:         "evil.xyz",
-			suspiciousTLDs: nil,
-			want:           0,
-		},
-		{
-			name:           "empty domain",
-			domain:         "",
-			suspiciousTLDs: []string{".xyz"},
-			want:           0,
-		},
-		{
-			name:           "returns on first match only",
-			domain:         "evil.xyz",
-			suspiciousTLDs: []string{".xyz", ".xyz"},
-			want:           1,
-		},
-		{
-			name:           "TLD without leading dot still matches via suffix",
-			domain:         "evil.xyz",
-			suspiciousTLDs: []string{"xyz"},
-			want:           1,
-		},
+		{"burner tld scores 6", "evil.tk", nil, tldBurnerPoints, SignalBurnerTLD},
+		{"burner takes precedence over cheap", "evil.top", nil, tldBurnerPoints, SignalBurnerTLD},
+		{"cheap tld scores 1", "evil.xyz", nil, tldCheapPoints, SignalSuspiciousTLD},
+		{"neutral tld scores 0", "example.com", nil, 0, ""},
+		{"profile suspicious tld treated as cheap", "evil.example", []string{".example"}, tldCheapPoints, SignalSuspiciousTLD},
+		{"case insensitive burner", "evil.TK", nil, tldBurnerPoints, SignalBurnerTLD},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := scoreTLD(tt.domain, tt.suspiciousTLDs)
-			assert.Equal(t, tt.want, got)
+			points, signal := engine.scoreTLDTier(tt.domain, tt.profileTLDs)
+			assert.Equal(t, tt.wantPoints, points)
+			assert.Equal(t, tt.wantSignal, signal)
 		})
 	}
 }

@@ -51,7 +51,8 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 	// Header row. New enrichment and bookmark columns are appended at the end
 	// for backward compatibility with parsers that use column names.
 	header := []string{
-		"domain", "score", "severity", "keywords", "issuer", "issuer_cn",
+		"domain", "score", "severity", "keywords", "signals", "category",
+		"issuer", "issuer_cn",
 		"san_domains", "cert_not_before", "ct_log", "profile", "session",
 		"created_at", "updated_at",
 		"is_live", "resolved_ips", "hosting_provider", "http_status",
@@ -80,6 +81,8 @@ func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilt
 			strconv.Itoa(hit.Score),
 			string(hit.Severity),
 			strings.Join(hit.Keywords, ";"),
+			strings.Join(hit.Signals, ";"),
+			hit.Category,
 			hit.Issuer,
 			hit.IssuerCN,
 			strings.Join(hit.SANDomains, ";"),

@@ -75,6 +75,11 @@ type Config struct {
 	// Managed via `ctsnare skip add/remove/reset` and persisted under [skip_overrides].
 	SkipOverrides SkipOverrides `toml:"skip_overrides"`
 
+	// TLDTiers configures the two-tier suspicious-TLD system (burner +6,
+	// cheap +1). Empty tiers fall back to built-in defaults; a configured tier
+	// replaces its default wholesale. Persisted under [tld_tiers].
+	TLDTiers TLDTiers `toml:"tld_tiers"`
+
 	// Backtrack is the number of CT log entries behind the current tip to start at.
 	// When > 0, the poller begins at (tree_size - Backtrack), giving immediate
 	// results on launch. Default: 0 (start at the tip, wait for new entries).

@@ -192,17 +192,7 @@ func (m DetailModel) renderContent() string {
 	}
 
 	// Scoring section.
-	b.WriteString("\n")
-	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Scoring") + "\n")
-	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
-	if len(m.hit.Keywords) > 0 {
-		b.WriteString(renderField("Keywords", strings.Join(m.hit.Keywords, ", ")))
-	} else {
-		b.WriteString(renderField("Keywords", "(none)"))
-	}
-	b.WriteString(renderField("CT Log", m.hit.CTLog))
-	b.WriteString(renderField("Profile", m.hit.Profile))
-	b.WriteString(renderField("Session", m.hit.Session))
+	m.renderScoring(&b, sepWidth)
 
 	// SANs section.
 	m.renderSANs(&b, sepWidth)
@@ -230,6 +220,28 @@ func (m DetailModel) renderContent() string {
 	}
 
 	return b.String()
+}
+
+// renderScoring writes the scoring section (keywords, signals, category, and
+// the CT-log/profile/session provenance fields) into b.
+func (m DetailModel) renderScoring(b *strings.Builder, sepWidth int) {
+	b.WriteString("\n")
+	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Scoring") + "\n")
+	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
+	if len(m.hit.Keywords) > 0 {
+		b.WriteString(renderField("Keywords", strings.Join(m.hit.Keywords, ", ")))
+	} else {
+		b.WriteString(renderField("Keywords", "(none)"))
+	}
+	if len(m.hit.Signals) > 0 {
+		b.WriteString(renderField("Signals", strings.Join(m.hit.Signals, ", ")))
+	}
+	if m.hit.Category != "" {
+		b.WriteString(renderField("Category", m.hit.Category))
+	}
+	b.WriteString(renderField("CT Log", m.hit.CTLog))
+	b.WriteString(renderField("Profile", m.hit.Profile))
+	b.WriteString(renderField("Session", m.hit.Session))
 }
 
 // renderSANs writes the Subject Alternative Names section into b.

@@ -33,20 +33,22 @@ var GlobalSkipSuffixes = []string{
 	"cloudfront.net",
 	"trafficmanager.net",
 	// PaaS / hosting
+	// NOTE: free-tenant PaaS suffixes (pages.dev, workers.dev, netlify.app,
+	// vercel.app, firebaseapp.com, github.io) are deliberately NOT skipped here.
+	// They are governed by WatchPlatformSuffixes instead, so brand-on-platform
+	// phishing (paypal-login.pages.dev) is still caught via tenant-only scoring.
 	"herokuapp.com",
 	"herokuspace.com",
-	"netlify.app",
-	"vercel.app",
-	"firebaseapp.com",
 	"appspot.com",
-	"github.io",
 	"gitlab.io",
-	"pages.dev",
-	"workers.dev",
 	"fly.dev",
 	"render.com",
 	"railway.app",
 	"onrender.com",
+	// Cloud test-cert churn observed live on the CT firehose.
+	"aws.dev",
+	"a2z.eu",
+	"crm.dev",
 	// IP / dynamic DNS services
 	"sslip.io",
 	"nip.io",
@@ -70,6 +72,33 @@ var GlobalSkipSuffixes = []string{
 	"google.co",
 }
 
+// WatchPlatformSuffixes are free-hosting / PaaS suffixes that are NOT skipped
+// outright. Instead, only the tenant labels (the part left of the suffix) are
+// scored: a brand/typosquat/homoglyph hit on the tenant marks the domain as
+// hosted abuse and stores it, while anything else is discarded silently.
+//
+// Rationale: legitimate brands never host on free PaaS, so paypal-login.pages.dev
+// is near-certain phishing — but pages.dev is also home to millions of benign
+// tenants, so a blanket skip blinds us to real abuse and a blanket score floods
+// the feed. Tenant-only scoring threads that needle. These suffixes are removed
+// from the plain skip list so the watch path, not the skip path, governs them.
+//
+// Like the skip list this is config-overridable; see config.WatchPlatforms.
+var WatchPlatformSuffixes = []string{
+	"pages.dev",
+	"workers.dev",
+	"r2.dev",
+	"web.app",
+	"firebaseapp.com",
+	"netlify.app",
+	"vercel.app",
+	"glitch.me",
+	"repl.co",
+	"github.io",
+	"weebly.com",
+	"wixsite.com",
+}
+
 // DefaultUserAdditions are enterprise/SaaS domain suffixes that match
 // keywords but are legitimate infrastructure. They are separated from
 // GlobalSkipSuffixes so users who specifically monitor enterprise
@@ -81,7 +110,6 @@ var DefaultUserAdditions = []string{
 	"jpmchase.net",
 	"sailpoint.com",
 	"identitynow-demo.com",
-	"aws.dev",
 	"appdomain.cloud",
 	"therapymatch.info",
 }

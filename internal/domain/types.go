@@ -34,6 +34,17 @@ type Hit struct {
 	// Keywords contains the list of profile keywords found in Domain.
 	Keywords []string
 
+	// Signals is the list of stable per-heuristic signal keys that fired during
+	// scoring (e.g. "brand-keyword", "typosquat", "burner-tld"). Unlike Keywords,
+	// which records the matched terms, Signals records which heuristics
+	// contributed to the score — making hits filterable by detection mechanism.
+	Signals []string
+
+	// Category is the profile bucket that produced the strongest match:
+	// "crypto", "phishing", "ai", "hosted-abuse", "tracker", or empty when no
+	// categorized signal fired.
+	Category string
+
 	// Issuer is the certificate issuer organization name.
 	Issuer string
 
@@ -125,4 +136,13 @@ type ScoredDomain struct {
 
 	// MatchedKeywords is the list of profile keywords found in Domain.
 	MatchedKeywords []string
+
+	// Signals is the list of stable per-heuristic signal keys that fired,
+	// providing a structured breakdown of which heuristics drove the score.
+	// See the scoring package for the full set of signal keys.
+	Signals []string
+
+	// Category is the profile bucket of the strongest match: "crypto",
+	// "phishing", "ai", "hosted-abuse", or empty when no categorized signal fired.
+	Category string
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-func TestScoreCert(t *testing.T) {
+func TestScoreCertSignals(t *testing.T) {
 	tests := []struct {
 		name     string
 		cert     domain.CertMeta
@@ -21,16 +21,27 @@ func TestScoreCert(t *testing.T) {
 		{"short-lived without brand no score", domain.CertMeta{ValidityDays: 90}, false, 0},
 		{"long-lived with brand no score", domain.CertMeta{ValidityDays: 365}, true, 0},
 		{"zero validity ignored", domain.CertMeta{ValidityDays: 0}, true, 0},
+		{"free CA with brand scores", domain.CertMeta{Issuer: "Let's Encrypt"}, true, 1},
+		{"free CA without brand no score", domain.CertMeta{Issuer: "Let's Encrypt"}, false, 0},
 		{
-			name:     "both signals stack",
-			cert:     domain.CertMeta{SANCount: 50, ValidityDays: 30},
+			name:     "SAN + short-lived + free CA caps issuer at 2 (total 3)",
+			cert:     domain.CertMeta{SANCount: 50, ValidityDays: 30, Issuer: "ZeroSSL"},
+			brandHit: true,
+			want:     3, // SAN(+1) + capped issuer(+2)
+		},
+		{
+			name:     "short-lived free CA together capped at 2",
+			cert:     domain.CertMeta{ValidityDays: 30, Issuer: "Google Trust Services"},
 			brandHit: true,
 			want:     2,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, scoreCert(tt.cert, tt.brandHit))
+			engine := NewEngine()
+			acc := engine.newAccumulator()
+			engine.scoreCertSignals(acc, tt.cert, tt.brandHit)
+			assert.Equal(t, tt.want, acc.score)
 		})
 	}
 }

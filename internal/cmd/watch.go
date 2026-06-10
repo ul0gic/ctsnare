@@ -96,8 +96,15 @@ func runWatch(_ *cobra.Command, _ []string) error {
 	}
 	defer closeStore(store)
 
-	// Create scoring engine.
-	scorer := scoring.NewEngine()
+	// Create scoring engine wired with the resolved TLD tiers, watched
+	// free-hosting platforms, and the keyword->category attribution map.
+	burnerTLDs, cheapTLDs := config.ResolveTLDTiers(cfg.TLDTiers)
+	scorer := scoring.NewEngine(scoring.Config{
+		BurnerTLDs:       burnerTLDs,
+		CheapTLDs:        cheapTLDs,
+		WatchPlatforms:   profile.WatchPlatformSuffixes,
+		CategoryKeywords: profile.CategoryKeywords(),
+	})
 
 	// Load keyword profile.
 	profileMgr := profile.NewManager(cfg.CustomProfiles)

@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ul0gic/ctsnare/internal/domain"
@@ -270,6 +271,8 @@ func (p *Poller) processScored(ctx context.Context, d string, sanDomains []strin
 		Score:         scored.Score,
 		Severity:      scored.Severity,
 		Keywords:      scored.MatchedKeywords,
+		Signals:       scored.Signals,
+		Category:      scored.Category,
 		CTLog:         p.logName,
 		Profile:       p.profile.Name,
 		Session:       p.session,
@@ -320,6 +323,8 @@ func buildTrackedHit(d string, sanDomains []string, cert *x509.Certificate, logN
 		Score:         scored.Score,
 		Severity:      scored.Severity,
 		Keywords:      scored.MatchedKeywords,
+		Signals:       scored.Signals,
+		Category:      "tracker",
 		CTLog:         logName,
 		Profile:       trackProfileName,
 		Session:       session,
@@ -346,6 +351,15 @@ func certMeta(cert *x509.Certificate) domain.CertMeta {
 	if !cert.NotAfter.IsZero() && !cert.NotBefore.IsZero() && cert.NotAfter.After(cert.NotBefore) {
 		meta.ValidityDays = int(cert.NotAfter.Sub(cert.NotBefore).Hours() / 24)
 	}
+	// Join issuer CN and organization for free-CA substring matching.
+	issuerParts := make([]string, 0, 2)
+	if cert.Issuer.CommonName != "" {
+		issuerParts = append(issuerParts, cert.Issuer.CommonName)
+	}
+	if len(cert.Issuer.Organization) > 0 {
+		issuerParts = append(issuerParts, cert.Issuer.Organization[0])
+	}
+	meta.Issuer = strings.Join(issuerParts, " ")
 	return meta
 }
 

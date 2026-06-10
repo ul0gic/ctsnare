@@ -24,9 +24,9 @@ const (
 // scans only the dot-separated labels of the registered part, applies a cheap
 // length-window pre-filter before computing any distance, and short-circuits as
 // soon as a brand produces a hit.
-func scoreTyposquat(domainName string, brand []string) (score int, matched []string) {
+func scoreTyposquat(domainName string, brand []string) (matched []string) {
 	if len(brand) == 0 {
-		return 0, nil
+		return nil
 	}
 
 	lower := strings.ToLower(domainName)
@@ -49,11 +49,10 @@ func scoreTyposquat(domainName string, brand []string) (score int, matched []str
 		}
 
 		if labelNearBrand(registered, lkw, maxDist) {
-			score += typosquatPoints
 			matched = append(matched, "~"+kw)
 		}
 	}
-	return score, matched
+	return matched
 }
 
 // allowedDistance returns the maximum edit distance accepted for a brand of the

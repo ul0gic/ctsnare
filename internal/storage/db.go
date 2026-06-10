@@ -93,6 +93,10 @@ func runMigrations(ctx context.Context, sqlDB *sql.DB) error {
 	if err := runMigrationV3(ctx, sqlDB); err != nil {
 		return fmt.Errorf("running V3 migration: %w", err)
 	}
+	// V4 migration (signals + category columns).
+	if err := runMigrationV4(ctx, sqlDB); err != nil {
+		return fmt.Errorf("running V4 migration: %w", err)
+	}
 	// Backfill base_domain for any rows where it is still empty.
 	if err := backfillBaseDomain(ctx, sqlDB); err != nil {
 		return fmt.Errorf("backfilling base_domain: %w", err)
@@ -129,11 +133,22 @@ func runMigrationV2(ctx context.Context, sqlDB *sql.DB) error {
 }
 
 // runMigrationV3 adds the base_domain column for subdomain grouping.
-// The ALTER TABLE is run individually; "duplicate column name" errors
-// are silently ignored so the migration is idempotent.
 func runMigrationV3(ctx context.Context, sqlDB *sql.DB) error {
-	stmts := strings.Split(migrationV3SQL, ";")
-	for _, stmt := range stmts {
+	return runColumnMigration(ctx, sqlDB, "V3", migrationV3SQL, migrationV3IndexSQL)
+}
+
+// runMigrationV4 adds the signals + category columns.
+func runMigrationV4(ctx context.Context, sqlDB *sql.DB) error {
+	return runColumnMigration(ctx, sqlDB, "V4", migrationV4SQL, migrationV4IndexSQL)
+}
+
+// runColumnMigration applies a set of ALTER TABLE ADD COLUMN statements
+// followed by index creation. Each ALTER is run individually; "duplicate column
+// name" errors are silently ignored so the migration is idempotent and safe to
+// re-run. SQLite lacks ALTER TABLE ADD COLUMN IF NOT EXISTS, so this duplicate
+// check is the idempotency mechanism. label identifies the migration in errors.
+func runColumnMigration(ctx context.Context, sqlDB *sql.DB, label, columnSQL, indexSQL string) error {
+	for _, stmt := range strings.Split(columnSQL, ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
@@ -142,12 +157,11 @@ func runMigrationV3(ctx context.Context, sqlDB *sql.DB) error {
 			if strings.Contains(err.Error(), "duplicate column name") {
 				continue
 			}
-			return fmt.Errorf("executing V3 migration statement: %w", err)
+			return fmt.Errorf("executing %s migration statement: %w", label, err)
 		}
 	}
-
-	if _, err := sqlDB.ExecContext(ctx, migrationV3IndexSQL); err != nil {
-		return fmt.Errorf("creating V3 indexes: %w", err)
+	if _, err := sqlDB.ExecContext(ctx, indexSQL); err != nil {
+		return fmt.Errorf("creating %s indexes: %w", label, err)
 	}
 	return nil
 }

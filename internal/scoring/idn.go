@@ -46,35 +46,43 @@ func confusableForm(domainName string) (folded string, hasPuny bool) {
 	return foldConfusables(decoded), true
 }
 
+// confusableMatch is a keyword that matched only after confusable folding,
+// carrying the points its tier should contribute.
+type confusableMatch struct {
+	keyword string
+	points  int
+}
+
 // scoreConfusableKeywords decodes a punycode domain and runs keyword matching
-// against the confusable-folded Unicode form. It returns the score and any
-// newly matched keywords that were NOT already present in the raw ASCII form,
-// so a homograph hit is counted once. Matches are reported with a "*" prefix to
-// flag that they came from the decoded/folded form rather than literal text.
-func scoreConfusableKeywords(domainName string, brand, generic []string) (score int, matched []string) {
+// against the confusable-folded Unicode form. It returns any newly matched
+// keywords that were NOT already present in the raw ASCII form, so a homograph
+// hit is counted once. Matches are reported with a "*" prefix to flag that they
+// came from the decoded/folded form rather than literal text.
+func scoreConfusableKeywords(domainName string, brand, generic []string) []confusableMatch {
 	folded, hasPuny := confusableForm(domainName)
 	if !hasPuny {
-		return 0, nil
+		return nil
 	}
 
 	rawLower := strings.ToLower(domainName)
+	var matches []confusableMatch
 
 	for _, kw := range brand {
-		score, matched = addConfusableMatch(folded, rawLower, kw, brandKeywordPoints, score, matched)
+		matches = appendConfusableMatch(matches, folded, rawLower, kw, brandKeywordPoints)
 	}
 	for _, kw := range generic {
-		score, matched = addConfusableMatch(folded, rawLower, kw, genericKeywordPoints, score, matched)
+		matches = appendConfusableMatch(matches, folded, rawLower, kw, genericKeywordPoints)
 	}
-	return score, matched
+	return matches
 }
 
-// addConfusableMatch credits a keyword only when it appears in the folded form
-// but not in the raw form (i.e. it was hidden behind a homoglyph or A-label).
-func addConfusableMatch(folded, raw, kw string, points, score int, matched []string) (int, []string) {
+// appendConfusableMatch credits a keyword only when it appears in the folded
+// form but not in the raw form (i.e. it was hidden behind a homoglyph or
+// A-label).
+func appendConfusableMatch(matches []confusableMatch, folded, raw, kw string, points int) []confusableMatch {
 	lkw := strings.ToLower(kw)
 	if strings.Contains(folded, lkw) && !strings.Contains(raw, lkw) {
-		score += points
-		matched = append(matched, "*"+kw)
+		matches = append(matches, confusableMatch{keyword: "*" + kw, points: points})
 	}
-	return score, matched
+	return matches
 }

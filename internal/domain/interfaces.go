@@ -14,6 +14,12 @@ type CertMeta struct {
 	// rounded to whole days. Short-lived certs on brand-bait domains are a signal
 	// of free-CA abuse. Zero means unknown (heuristic skipped).
 	ValidityDays int
+
+	// Issuer is the certificate issuer CN and organization joined for substring
+	// matching against the known free-CA list. Empty disables the free-CA
+	// heuristic. The poller populates it from Issuer.CommonName and the first
+	// Issuer.Organization entry.
+	Issuer string
 }
 
 // Scorer scores a domain against a profile's keyword heuristics.
