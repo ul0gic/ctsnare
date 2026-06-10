@@ -27,6 +27,11 @@ var (
 	queryBookmarked bool
 	queryLiveOnly   bool
 	queryDomain     string
+	querySignals    []string
+	queryCategory   string
+	queryIssuer     string
+	queryProvider   string
+	queryBrand      string
 )
 
 var queryCmd = &cobra.Command{
@@ -42,7 +47,12 @@ Examples:
   ctsnare query --severity HIGH --format json
   ctsnare query --keyword casino --since 12h
   ctsnare query --keyword wallet --severity HIGH --since 24h --format json | jq '.domain'
-  ctsnare query --domain openai.com --session openai`,
+  ctsnare query --domain openai.com --session openai
+  ctsnare query --signal burner-tld --signal numeric-sld --format csv
+  ctsnare query --category hosted-abuse --since 24h
+  ctsnare query --issuer "let's encrypt" --severity HIGH
+  ctsnare query --provider cloudflare --live-only
+  ctsnare query --brand paypal --format json | jq -r '.domain'`,
 	RunE: runQuery,
 }
 
@@ -58,6 +68,11 @@ func init() {
 	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results to return")
 	queryCmd.Flags().BoolVar(&queryBookmarked, "bookmarked", false, "show only bookmarked hits")
 	queryCmd.Flags().BoolVar(&queryLiveOnly, "live-only", false, "show only domains that responded to HTTP liveness probe")
+	queryCmd.Flags().StringArrayVar(&querySignals, "signal", nil, "filter by heuristic signal key (repeatable, AND; e.g. burner-tld, typosquat, hosted-abuse)")
+	queryCmd.Flags().StringVar(&queryCategory, "category", "", "filter by category: crypto, phishing, ai, hosted-abuse, tracker")
+	queryCmd.Flags().StringVar(&queryIssuer, "issuer", "", "filter by issuer substring, case-insensitive (matches issuer org or CN)")
+	queryCmd.Flags().StringVar(&queryProvider, "provider", "", "filter by hosting provider substring, case-insensitive")
+	queryCmd.Flags().StringVar(&queryBrand, "brand", "", "filter by brand name in any match form: exact, ~typosquat, or *homoglyph")
 
 	rootCmd.AddCommand(queryCmd)
 }
@@ -95,6 +110,11 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		Session:  querySession,
 		Severity: querySeverity,
 		Domain:   queryDomain,
+		Signals:  querySignals,
+		Category: queryCategory,
+		Issuer:   queryIssuer,
+		Provider: queryProvider,
+		Brand:    queryBrand,
 		Limit:    queryLimit,
 		SortBy:   "score",
 		SortDir:  "DESC",

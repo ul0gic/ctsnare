@@ -184,6 +184,7 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 		{"severity = ?", filter.Severity},
 		{"session = ?", filter.Session},
 		{"base_domain = ?", filter.BaseDomain},
+		{"category = ?", filter.Category},
 	} {
 		if f.value != "" {
 			where = append(where, f.predicate)
@@ -192,6 +193,7 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 	}
 
 	where, args = appendMatchPredicates(filter, where, args)
+	where, args = appendSignalPredicates(filter, where, args)
 
 	if pred := bookmarkedPredicate(filter.Bookmarked); pred != "" {
 		where = append(where, pred)
@@ -228,9 +230,46 @@ func appendMatchPredicates(filter domain.QueryFilter, where []string, args []int
 		where = append(where, "domain LIKE ?")
 		args = append(args, "%"+tld)
 	}
+	if filter.Issuer != "" {
+		// Match either the issuer org or the issuer CN, case-insensitive.
+		where = append(where, "(issuer LIKE ? OR issuer_cn LIKE ?)")
+		pat := "%" + filter.Issuer + "%"
+		args = append(args, pat, pat)
+	}
+	if filter.Provider != "" {
+		where = append(where, "hosting_provider LIKE ?")
+		args = append(args, "%"+filter.Provider+"%")
+	}
+	if filter.Brand != "" {
+		// A brand matches as an exact ("name"), typosquat ("~name"), or
+		// homoglyph ("*name") entry in the keywords JSON array. Each variant is
+		// matched as a quoted JSON element so it cannot partially match a longer
+		// keyword. The patterns are bound as parameters, never interpolated.
+		where = append(where, `(keywords LIKE ? OR keywords LIKE ? OR keywords LIKE ?)`)
+		args = append(args,
+			`%"`+filter.Brand+`"%`,
+			`%"~`+filter.Brand+`"%`,
+			`%"*`+filter.Brand+`"%`,
+		)
+	}
 	if pred, target := domainTrackPredicate(filter.Domain); pred != "" {
 		where = append(where, pred)
 		args = append(args, target, "%."+target)
+	}
+	return where, args
+}
+
+// appendSignalPredicates appends one predicate per requested signal key (AND
+// semantics): a row matches only when its signals JSON array contains every
+// listed key. Each key is matched as a quoted JSON element ("key") so it cannot
+// partially match another key. Values are bound as parameters.
+func appendSignalPredicates(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
+	for _, sig := range filter.Signals {
+		if sig == "" {
+			continue
+		}
+		where = append(where, "signals LIKE ?")
+		args = append(args, `%"`+sig+`"%`)
 	}
 	return where, args
 }
@@ -429,6 +468,7 @@ func sanitizeSortColumn(col string) string {
 		"updated_at":      "updated_at",
 		"ct_log":          "ct_log",
 		"profile":         "profile",
+		"category":        "category",
 		"is_live":         "is_live",
 		"bookmarked":      "bookmarked",
 		"http_status":     "http_status",

@@ -63,6 +63,29 @@ type QueryFilter struct {
 	// Empty string means no base domain filter.
 	BaseDomain string
 
+	// Signals filters hits whose signals JSON array contains every listed
+	// signal key (AND semantics — repeatable on the CLI). Each key is matched
+	// as a quoted JSON element ("key") against the stored array text, so a key
+	// cannot spuriously match a substring of another key. Empty means no filter.
+	Signals []string
+
+	// Category filters hits whose category column equals this value exactly
+	// (e.g. "phishing", "hosted-abuse"). Empty means no category filter.
+	Category string
+
+	// Issuer filters hits whose issuer or issuer_cn contains this substring,
+	// case-insensitive. Empty means no issuer filter.
+	Issuer string
+
+	// Provider filters hits whose hosting_provider column contains this
+	// substring, case-insensitive. Empty means no provider filter.
+	Provider string
+
+	// Brand filters hits whose keywords array contains the given brand name in
+	// any of its match forms: exact ("name"), typosquat ("~name"), or homoglyph
+	// ("*name"). Empty means no brand filter.
+	Brand string
+
 	// Domain filters hits to a tracked target using apex-plus-subdomain
 	// semantics: the row matches when its domain equals Domain OR is a subdomain
 	// of Domain (ends with "." + Domain). The value is normalized (lowercased,

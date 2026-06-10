@@ -170,6 +170,74 @@ func TestMigration_UpgradeFromBaseSchema(t *testing.T) {
 	assert.Equal(t, []string{"burner-tld", "numeric-sld"}, got[0].Signals)
 }
 
+func TestQueryHits_NewFilters(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	h1 := testHit("paypal-login.icu", 9, domain.SeverityHigh)
+	h1.Signals = []string{"brand-keyword", "burner-tld", "numeric-sld"}
+	h1.Category = "phishing"
+	h1.Issuer = "Let's Encrypt"
+	h1.HostingProvider = "Cloudflare"
+	h1.Keywords = []string{"paypal", "login"}
+	require.NoError(t, db.UpsertHit(ctx, h1))
+
+	h2 := testHit("coinbasse.netlify.app", 5, domain.SeverityMed)
+	h2.Signals = []string{"typosquat", "hosted-abuse"}
+	h2.Category = "hosted-abuse"
+	h2.Issuer = "ZeroSSL"
+	h2.HostingProvider = "Netlify"
+	h2.Keywords = []string{"~coinbase"}
+	require.NoError(t, db.UpsertHit(ctx, h2))
+
+	tests := []struct {
+		name   string
+		filter domain.QueryFilter
+		want   []string // expected domains
+	}{
+		{"single signal", domain.QueryFilter{Signals: []string{"burner-tld"}}, []string{"paypal-login.icu"}},
+		{"signal AND both present", domain.QueryFilter{Signals: []string{"brand-keyword", "numeric-sld"}}, []string{"paypal-login.icu"}},
+		{"signal AND one absent excludes", domain.QueryFilter{Signals: []string{"brand-keyword", "typosquat"}}, nil},
+		{"hosted-abuse signal", domain.QueryFilter{Signals: []string{"hosted-abuse"}}, []string{"coinbasse.netlify.app"}},
+		{"category phishing", domain.QueryFilter{Category: "phishing"}, []string{"paypal-login.icu"}},
+		{"issuer case-insensitive", domain.QueryFilter{Issuer: "lets"}, nil}, // "lets" not a substring of "Let's"
+		{"issuer substring", domain.QueryFilter{Issuer: "encrypt"}, []string{"paypal-login.icu"}},
+		{"issuer zerossl", domain.QueryFilter{Issuer: "ZeroSSL"}, []string{"coinbasse.netlify.app"}},
+		{"provider cloudflare", domain.QueryFilter{Provider: "cloud"}, []string{"paypal-login.icu"}},
+		{"brand exact", domain.QueryFilter{Brand: "paypal"}, []string{"paypal-login.icu"}},
+		{"brand typosquat form", domain.QueryFilter{Brand: "coinbase"}, []string{"coinbasse.netlify.app"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.filter.SortBy = "domain"
+			tt.filter.SortDir = "ASC"
+			hits, err := db.QueryHits(ctx, tt.filter)
+			require.NoError(t, err)
+			var got []string
+			for _, h := range hits {
+				got = append(got, h.Domain)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestQueryHits_IssuerCaseInsensitive proves the issuer filter folds case via
+// SQLite's case-insensitive LIKE so an operator need not match the cert's
+// capitalization exactly.
+func TestQueryHits_IssuerCaseInsensitive(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	h := testHit("x.icu", 6, domain.SeverityMed)
+	h.Issuer = "Google Trust Services"
+	require.NoError(t, db.UpsertHit(ctx, h))
+
+	hits, err := db.QueryHits(ctx, domain.QueryFilter{Issuer: "google trust"})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+}
+
 func TestUpsert_UpdatesExistingDomain(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
