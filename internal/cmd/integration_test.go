@@ -624,6 +624,9 @@ func TestSkipList_ShowsGlobals(t *testing.T) {
 	assert.Contains(t, output, "cloudflaressl.com")
 	assert.Contains(t, output, "amazonaws.com")
 	assert.Contains(t, output, "effective:")
+	// Watched free-hosting platforms are surfaced (tenant-scored, not skipped).
+	assert.Contains(t, output, "Watched platforms")
+	assert.Contains(t, output, "pages.dev [watch]")
 }
 
 func TestSkipAdd_ThenList_ShowsUserAddition(t *testing.T) {

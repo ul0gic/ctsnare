@@ -150,10 +150,14 @@ ctsnare query --severity HIGH
 ctsnare query --keyword login --tld .xyz --since 6h
 ctsnare query --live-only --min-score 5 --format json
 ctsnare query --domain openai.com --session openai
+ctsnare query --signal burner-tld --signal numeric-sld --format csv
+ctsnare query --category hosted-abuse --since 24h
+ctsnare query --issuer "let's encrypt" --severity HIGH
+ctsnare query --brand paypal --format json | jq -r '.domain'
 ctsnare query --session midnight-run --format csv > midnight-run.csv
 ```
 
-Filters compose with AND. `--since` accepts Go durations plus a day suffix (`12h`, `7d`).
+Filters compose with AND. `--since` accepts Go durations plus a day suffix (`12h`, `7d`). `--signal` is repeatable (AND across keys); `--issuer` and `--provider` are case-insensitive substring matches; `--brand` matches a name in any keyword form (exact, `~typosquat`, `*homoglyph`).
 
 ### TUI keys
 
@@ -166,27 +170,36 @@ Explorer: `Enter` drill in · `f` filter · `s` sort · `b` bookmark · `Space/a
 
 Every domain extracted from a certificate is scored independently; the total maps to a severity.
 
-| Heuristic | Points | Condition |
-|-----------|--------|-----------|
-| Brand keyword | +3 per keyword | Domain contains a high-precision brand term (e.g. `paypal`, `metamask`, `openai`) |
-| Generic keyword | +1 per keyword | Domain contains a broad term (e.g. `login`, `swap`, `token`) |
-| Punycode / IDN | +2 | Any label is an `xn--` A-label |
-| Homoglyph keyword | +3 / +1 | A keyword matches only after decoding punycode and folding confusables (reported with `*` prefix) |
-| Typosquat | +3 | A label is 1–2 edits from a brand keyword without an exact match (reported with `~` prefix) |
-| Suspicious TLD | +1 | TLD is in the profile's TLD list |
-| Domain length | +1 | Registered domain exceeds 30 characters |
-| Hyphen density | +1 | 2 or more hyphens |
-| Digit sequence | +1 | 4 or more consecutive digits |
-| Entropy / DGA | +1 | A label (≥10 chars) has high Shannon entropy, or a 4+ consonant run plus a digit |
-| Certificate SAN set | +1 | Certificate carries 20 or more SAN entries |
-| Short-lived brand cert | +1 | Certificate validity ≤ 90 days **and** a brand keyword matched |
-| Multi-keyword bonus | +2 | 3 or more keywords matched (across both tiers, including homoglyph/typosquat) |
+Each heuristic emits a stable **signal key** (shown below) alongside its points. Signals are persisted per hit and filterable with `query --signal`.
 
-Severity: **HIGH** ≥ 8 · **MED** 5–7 · **LOW** 1–4. By default hits scoring 4+ are stored; 1–3 appear in the live feed only; 0 is discarded. Tune with `--min-score`. The brand tier is deliberately weighted so a single exact brand hit (+3) lands in LOW on its own — it needs corroborating structure, a suspicious TLD, or a second keyword to escalate, which keeps false positives out of the database.
+| Heuristic | Signal | Points | Condition |
+|-----------|--------|--------|-----------|
+| Brand keyword | `brand-keyword` | +3 per keyword | High-precision brand term (e.g. `paypal`, `metamask`, `openai`). Short brands (≤4 chars, e.g. `dhl`) match only on label boundaries |
+| Generic keyword | `generic-keyword` | +1 per keyword | Broad term (e.g. `login`, `swap`, `token`) |
+| Punycode / IDN | `punycode` | +2 | Any label is an `xn--` A-label |
+| Homoglyph keyword | `homoglyph` | +3 / +1 | Keyword matches only after decoding punycode and folding confusables (reported with `*` prefix) |
+| Typosquat | `typosquat` | +3 | A label is 1–2 edits from a brand keyword without an exact match (reported with `~` prefix) |
+| Burner TLD | `burner-tld` | +6 | TLD is in the burner tier (disposable-abuse registries) |
+| Cheap TLD | `suspicious-tld` | +1 | TLD is in the cheap tier, or a profile's own `suspicious_tlds` |
+| Numeric SLD | `numeric-sld` | +3 | Registered SLD is all digits (≥3) **and** the TLD is burner or cheap |
+| Deceptive prefix | `deceptive-prefix` | +2 | Leading label / SLD starts with `com-`/`www-` or SLD ends `-com`, **and** corroborated by a keyword, tiered TLD, or brand hit |
+| Domain length | `long-domain` | +1 | Registered domain exceeds 30 characters |
+| Hyphen density | `hyphens` | +1 | 2 or more hyphens |
+| Digit sequence | `digit-seq` | +1 | 4 or more consecutive digits |
+| Entropy / DGA | `entropy` | +1 | A label (≥10 chars) has high Shannon entropy, or a 4+ consonant run plus a digit |
+| Certificate SAN set | `san-count` | +1 | Certificate carries 20 or more SAN entries |
+| Short-lived brand cert | `short-lived-brand` | +1 | Certificate validity ≤ 90 days **and** a brand matched |
+| Free-CA brand cert | `free-ca-brand` | +1 | Free CA (Let's Encrypt, ZeroSSL, Google Trust Services) **and** a brand matched (combined cert-issuer contribution capped at +2) |
+| Hosted abuse | `hosted-abuse` | +2 | A brand/typosquat/homoglyph hit on a tenant under a watched free-hosting platform |
+| Multi-keyword bonus | `multi-keyword` | +2 | 3 or more keywords matched (across both tiers, including homoglyph/typosquat) |
+
+Severity: **HIGH** ≥ 8 · **MED** 5–7 · **LOW** 1–4. By default hits scoring 4+ are stored; 1–3 appear in the live feed only; 0 is discarded. Tune with `--min-score`. The brand tier is deliberately weighted so a single exact brand hit (+3) lands in LOW on its own — it needs corroborating structure, a tiered TLD, or a second keyword to escalate. A burner-TLD match alone (+6) reaches MED and is auto-stored; any corroboration tips it to HIGH. Each hit is also tagged with a **category** (`crypto`, `phishing`, `ai`, `hosted-abuse`, `tracker`) from its strongest match, filterable with `query --category`.
 
 **Profiles.** Built-ins: `crypto` (exchanges, wallets, casinos), `phishing` (brands, credential bait), `ai` (LLM-vendor impersonation — `openai`, `anthropic`, `claude`, …), and `all` (all combined). Each splits its terms into a high-precision **brand** tier (+3) and a **generic** tier (+1). Inspect any profile with `ctsnare profiles show <name>`, or define your own in TOML — set `brand_keywords` for the high tier and `keywords` for the generic tier (see Configuration).
 
-**Noise filtering.** Domains ending with known infrastructure suffixes (52 built-in globals — cloud providers, CDNs, PaaS, big tech) skip scoring entirely. Manage with `ctsnare skip list/add/remove/reset`; effective list = globals + your additions − your removals.
+**Noise filtering.** Domains ending with a known infrastructure suffix (cloud providers, CDNs, big tech) skip scoring entirely. Manage with `ctsnare skip list/add/remove/reset`; effective list = globals + your additions − your removals. Free-hosting platforms (`pages.dev`, `netlify.app`, `vercel.app`, `github.io`, …) are a separate **watch** class: instead of skipping them, ctsnare scores only the tenant labels, so brand-on-platform phishing like `paypal-login.pages.dev` is caught (+2 `hosted-abuse`) while benign tenants are dropped. `ctsnare skip list` annotates these with `[watch]`.
+
+**TLD tiers.** Suspicious TLDs are scored in two tiers — **burner** (+6: disposable-abuse registries) and **cheap** (+1) — configurable under `[tld_tiers]` (see Configuration). The data churns quarterly with the abuse landscape, so it lives in config, not code; a configured tier replaces its built-in default wholesale.
 
 **Enrichment.** Every stored hit gets DNS resolution, CIDR-based hosting provider detection, and an HTTP HEAD liveness probe in the background. Results show in the detail view and filter with `--live-only`.
 
@@ -210,6 +223,13 @@ backtrack       = 0       # start N entries behind the log tip
 [skip_overrides]          # managed via `ctsnare skip add/remove/reset`
 additions = ["sailpoint.com"]
 removals  = []
+
+[tld_tiers]               # suspicious-TLD tiers; data churns quarterly, so it's config
+# Setting either array REPLACES the built-in default for that tier wholesale.
+# Leave a tier unset to keep its built-in default. Per-profile suspicious_tlds
+# remain additive cheap-tier entries on top of whatever resolves here.
+burner = [".su", ".ru", ".tk", ".cfd", ".sbs", ".icu", ".top", ".cc"]  # +6
+cheap  = [".xyz", ".click", ".buzz", ".shop", ".vip", ".lol"]          # +1
 
 # Custom profile — or extend a built-in with description = "extends:crypto"
 [custom_profiles.brand]

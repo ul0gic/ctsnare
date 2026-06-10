@@ -161,6 +161,15 @@ func runSkipList(_ *cobra.Command, _ []string) error {
 		fmt.Println()
 	}
 
+	// Watched free-hosting platforms are NOT skipped outright — their tenant
+	// labels are scored instead (brand-on-platform phishing). Surface them here
+	// so the skip picture is complete.
+	fmt.Printf("Watched platforms (tenant-scored, not skipped): %d\n", len(profile.WatchPlatformSuffixes))
+	for _, s := range profile.WatchPlatformSuffixes {
+		fmt.Printf("  %s [watch]\n", s)
+	}
+	fmt.Println()
+
 	fmt.Printf("Config: %s\n", path)
 	return nil
 }
