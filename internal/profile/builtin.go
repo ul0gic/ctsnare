@@ -87,24 +87,32 @@ var DefaultUserAdditions = []string{
 }
 
 // CryptoProfile targets cryptocurrency scams, underground casinos, and financial fraud.
+//
+// BrandKeywords (+3) are exact wallet/exchange/chain brand names — a hit here is
+// near-certain impersonation. Keywords (+1) are broad crypto/DeFi/gambling terms
+// that are common in legitimate fintech and gain signal only in combination.
 var CryptoProfile = domain.Profile{
 	Name: "crypto",
-	Keywords: []string{
-		// Crypto brand impersonation
+	BrandKeywords: []string{
+		// Wallets / exchanges / chains — high-precision impersonation targets
 		"bitcoin", "ethereum", "binance", "coinbase", "metamask",
 		"trustwallet", "ledger", "trezor", "opensea", "uniswap",
-		"pancakeswap", "solana", "cardano", "blockchain",
+		"pancakeswap", "solana", "cardano",
+		// Gambling brands
+		"1xbet", "bet365", "betway",
+	},
+	Keywords: []string{
 		// Crypto scam tactics
 		"airdrop", "presale", "giveaway", "rugpull",
 		"moonshot", "pump-and", "freemint",
-		// DeFi / exchange scams
+		// DeFi / exchange terms
 		"defi", "swap", "staking", "yield-farm", "liquidity",
-		"flashloan", "smartcontract",
-		// Casino / gambling
-		"casino", "jackpot", "sportsbet", "1xbet", "bet365",
-		"betway", "slots", "poker", "roulette", "blackjack",
+		"flashloan", "smartcontract", "blockchain",
+		// Casino / gambling terms
+		"casino", "jackpot", "sportsbet",
+		"slots", "poker", "roulette", "blackjack",
 		"lottery", "gambling",
-		// Financial fraud
+		// Generic financial terms
 		"wallet", "token", "mining", "crypto", "nft",
 	},
 	SuspiciousTLDs: []string{
@@ -117,9 +125,13 @@ var CryptoProfile = domain.Profile{
 }
 
 // PhishingProfile targets credential phishing and brand impersonation domains.
+//
+// BrandKeywords (+3) are exact brand and bank names. Keywords (+1) are action
+// words (login, verify) that occur on countless legitimate sites and are only
+// meaningful alongside a brand hit, a suspicious TLD, or other heuristics.
 var PhishingProfile = domain.Profile{
 	Name: "phishing",
-	Keywords: []string{
+	BrandKeywords: []string{
 		// Brand impersonation — high-value targets
 		"paypal", "netflix", "microsoft", "instagram", "facebook",
 		"whatsapp", "telegram", "dropbox", "docusign", "linkedin",
@@ -127,15 +139,17 @@ var PhishingProfile = domain.Profile{
 		// Banking / financial brand targets
 		"chase", "wellsfargo", "bankofamerica", "citibank", "hsbc",
 		"barclays", "santander", "capitalone",
-		// Shipping / delivery phishing
-		"dhl", "fedex", "usps", "ups-delivery", "royalmail",
+		// Shipping / delivery brands
+		"dhl", "fedex", "usps", "royalmail",
+	},
+	Keywords: []string{
 		// Action words — only the strong phishing signals
 		"signin", "login", "verify", "password", "credential",
 		"banking", "webscr", "authenticate", "suspended", "unauthorized",
 		"security-alert", "helpdesk", "verification",
 	},
 	SuspiciousTLDs: []string{
-		".xyz", ".top", ".info", ".click", ".buzz",
+		".xyz", ".top", ".click", ".buzz",
 		".icu", ".monster", ".tk", ".ml", ".ga",
 		".cf", ".quest", ".sbs", ".cfd", ".rest",
 	},
@@ -143,20 +157,50 @@ var PhishingProfile = domain.Profile{
 	Description:  "Credential phishing and brand impersonation domains",
 }
 
+// AIProfile targets impersonation of AI/LLM products and vendors — a fast-growing
+// lure for fake "free credits", account-verification, and token-grant scams.
+//
+// BrandKeywords (+3) are exact product/vendor names. Keywords (+1) are generic
+// AI terms that appear on many legitimate sites.
+var AIProfile = domain.Profile{
+	Name: "ai",
+	BrandKeywords: []string{
+		// AI vendors / products — high-precision impersonation targets
+		"openai", "chatgpt", "anthropic", "claude", "gemini",
+		"copilot", "midjourney", "deepseek", "perplexity",
+		"huggingface", "stability-ai", "grok-ai",
+	},
+	Keywords: []string{
+		// Generic AI lure terms
+		"airdrop", "free-credits", "gpt", "llm", "prompt",
+	},
+	SuspiciousTLDs: []string{
+		".xyz", ".top", ".click", ".buzz", ".icu",
+		".monster", ".quest", ".sbs", ".cfd", ".rest", ".app",
+	},
+	SkipSuffixes: GlobalSkipSuffixes,
+	Description:  "AI/LLM product and vendor impersonation scams",
+}
+
 // AllProfile combines keywords and TLDs from all built-in profiles.
 var AllProfile = buildAllProfile()
 
 // buildAllProfile merges all built-in profiles into a single combined profile.
 func buildAllProfile() domain.Profile {
+	brand := mergeUnique(CryptoProfile.BrandKeywords, PhishingProfile.BrandKeywords)
+	brand = mergeUnique(brand, AIProfile.BrandKeywords)
 	keywords := mergeUnique(CryptoProfile.Keywords, PhishingProfile.Keywords)
+	keywords = mergeUnique(keywords, AIProfile.Keywords)
 	tlds := mergeUnique(CryptoProfile.SuspiciousTLDs, PhishingProfile.SuspiciousTLDs)
+	tlds = mergeUnique(tlds, AIProfile.SuspiciousTLDs)
 
 	return domain.Profile{
 		Name:           "all",
+		BrandKeywords:  brand,
 		Keywords:       keywords,
 		SuspiciousTLDs: tlds,
 		SkipSuffixes:   GlobalSkipSuffixes,
-		Description:    "Combined profile — all keywords and TLDs from crypto + phishing",
+		Description:    "Combined profile — all keywords and TLDs from crypto + phishing + ai",
 	}
 }
 

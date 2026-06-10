@@ -16,12 +16,13 @@ var profilesCmd = &cobra.Command{
 	Long: `List all available keyword profiles or inspect a specific profile's
 keywords, suspicious TLDs, and skip suffixes.
 
-Built-in profiles: crypto, phishing, all.
+Built-in profiles: crypto, phishing, ai, all.
 Custom profiles are loaded from the config file (--config).
 
 Examples:
   ctsnare profiles
   ctsnare profiles show crypto
+  ctsnare profiles show ai
   ctsnare profiles show all`,
 	RunE: runProfilesList,
 }
@@ -108,7 +109,13 @@ func PrintProfileDetail(p *domain.Profile, overrides config.SkipOverrides) {
 	}
 	fmt.Println()
 
-	fmt.Printf("Keywords (%d):\n", len(p.Keywords))
+	if len(p.BrandKeywords) > 0 {
+		fmt.Printf("Brand Keywords (%d, +3 each):\n", len(p.BrandKeywords))
+		fmt.Printf("  %s\n", strings.Join(p.BrandKeywords, ", "))
+		fmt.Println()
+	}
+
+	fmt.Printf("Keywords (%d, +1 each):\n", len(p.Keywords))
 	fmt.Printf("  %s\n", strings.Join(p.Keywords, ", "))
 	fmt.Println()
 

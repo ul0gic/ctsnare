@@ -345,7 +345,8 @@ func TestProfilesShow(t *testing.T) {
 	})
 
 	assert.Contains(t, output, "Profile: crypto")
-	assert.Contains(t, output, "Keywords (45)")
+	assert.Contains(t, output, "Brand Keywords (16, +3 each)")
+	assert.Contains(t, output, "Keywords (29, +1 each)")
 	assert.Contains(t, output, "bitcoin")
 	assert.Contains(t, output, "Suspicious TLDs")
 	assert.Contains(t, output, ".xyz")

@@ -14,7 +14,7 @@ func TestLoadProfile_BuiltinCrypto(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "crypto", p.Name)
-	assert.Contains(t, p.Keywords, "bitcoin")
+	assert.Contains(t, p.BrandKeywords, "bitcoin")
 	assert.Contains(t, p.Keywords, "wallet")
 	assert.Contains(t, p.SuspiciousTLDs, ".xyz")
 	assert.NotEmpty(t, p.SkipSuffixes)
@@ -28,9 +28,22 @@ func TestLoadProfile_BuiltinPhishing(t *testing.T) {
 
 	assert.Equal(t, "phishing", p.Name)
 	assert.Contains(t, p.Keywords, "login")
-	assert.Contains(t, p.Keywords, "paypal")
+	assert.Contains(t, p.BrandKeywords, "paypal")
 	assert.Contains(t, p.SuspiciousTLDs, ".tk")
+	assert.NotContains(t, p.SuspiciousTLDs, ".info", "info removed as too noisy")
 	assert.NotEmpty(t, p.SkipSuffixes)
+}
+
+func TestLoadProfile_BuiltinAI(t *testing.T) {
+	m := NewManager(nil)
+	p, err := m.LoadProfile("ai")
+	require.NoError(t, err)
+
+	assert.Equal(t, "ai", p.Name)
+	assert.Contains(t, p.BrandKeywords, "openai")
+	assert.Contains(t, p.BrandKeywords, "anthropic")
+	assert.NotEmpty(t, p.SuspiciousTLDs)
+	assert.NotEmpty(t, p.Description)
 }
 
 func TestLoadProfile_BuiltinAll(t *testing.T) {
@@ -39,10 +52,14 @@ func TestLoadProfile_BuiltinAll(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "all", p.Name)
-	// Should contain keywords from both crypto and phishing
-	assert.Contains(t, p.Keywords, "bitcoin")
+	// Should contain brand keywords from crypto, phishing, and ai
+	assert.Contains(t, p.BrandKeywords, "bitcoin")
+	assert.Contains(t, p.BrandKeywords, "paypal")
+	assert.Contains(t, p.BrandKeywords, "openai")
+	// Should contain generic keywords from crypto and phishing
 	assert.Contains(t, p.Keywords, "login")
-	// Should contain TLDs from both
+	assert.Contains(t, p.Keywords, "wallet")
+	// Should contain TLDs from all
 	assert.Contains(t, p.SuspiciousTLDs, ".xyz")
 	assert.Contains(t, p.SuspiciousTLDs, ".tk")
 }
@@ -58,14 +75,15 @@ func TestListProfiles_ReturnsSortedNames(t *testing.T) {
 	m := NewManager(nil)
 	names := m.ListProfiles()
 
-	assert.Equal(t, []string{"all", "crypto", "phishing"}, names)
+	assert.Equal(t, []string{"ai", "all", "crypto", "phishing"}, names)
 }
 
 func TestCustomProfile_ExtendsBuiltin(t *testing.T) {
 	custom := map[string]domain.Profile{
 		"my-crypto": {
-			Keywords:    []string{"nft", "opensea"},
-			Description: "extends:crypto",
+			Keywords:      []string{"nft", "custom-term"},
+			BrandKeywords: []string{"mybrand"},
+			Description:   "extends:crypto",
 		},
 	}
 	m := NewManager(custom)
@@ -73,10 +91,12 @@ func TestCustomProfile_ExtendsBuiltin(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "my-crypto", p.Name)
-	// Should have crypto keywords plus custom ones
-	assert.Contains(t, p.Keywords, "bitcoin")
+	// Should inherit crypto brand keywords plus custom brand keywords
+	assert.Contains(t, p.BrandKeywords, "bitcoin")
+	assert.Contains(t, p.BrandKeywords, "mybrand")
+	// Should inherit crypto generic keywords plus custom ones
 	assert.Contains(t, p.Keywords, "nft")
-	assert.Contains(t, p.Keywords, "opensea")
+	assert.Contains(t, p.Keywords, "custom-term")
 	// Should have crypto TLDs
 	assert.Contains(t, p.SuspiciousTLDs, ".xyz")
 }
@@ -97,8 +117,8 @@ func TestCustomProfile_WithoutExtends(t *testing.T) {
 	assert.Equal(t, []string{"test", "demo"}, p.Keywords)
 	assert.Equal(t, []string{".test"}, p.SuspiciousTLDs)
 	// Should NOT have any built-in keywords
-	assert.NotContains(t, p.Keywords, "bitcoin")
 	assert.NotContains(t, p.Keywords, "login")
+	assert.NotContains(t, p.BrandKeywords, "bitcoin")
 }
 
 func TestCustomProfile_AppearsInList(t *testing.T) {
@@ -112,12 +132,13 @@ func TestCustomProfile_AppearsInList(t *testing.T) {
 	assert.Contains(t, names, "all")
 	assert.Contains(t, names, "crypto")
 	assert.Contains(t, names, "phishing")
+	assert.Contains(t, names, "ai")
 }
 
 func TestNewManager_NilCustomProfiles(t *testing.T) {
 	m := NewManager(nil)
 	assert.NotNil(t, m)
-	assert.Len(t, m.ListProfiles(), 3)
+	assert.Len(t, m.ListProfiles(), 4)
 }
 
 func TestAllProfile_NoDuplicateKeywords(t *testing.T) {
@@ -130,6 +151,13 @@ func TestAllProfile_NoDuplicateKeywords(t *testing.T) {
 		_, exists := seen[kw]
 		assert.False(t, exists, "duplicate keyword: %s", kw)
 		seen[kw] = struct{}{}
+	}
+
+	seenBrand := make(map[string]struct{})
+	for _, kw := range p.BrandKeywords {
+		_, exists := seenBrand[kw]
+		assert.False(t, exists, "duplicate brand keyword: %s", kw)
+		seenBrand[kw] = struct{}{}
 	}
 }
 

@@ -6,13 +6,14 @@ import (
 )
 
 // matchKeywords returns the score and list of matched keywords found in the
-// domain string. Each keyword match contributes 2 points. Matching is
-// case-insensitive substring matching.
-func matchKeywords(domain string, keywords []string) (score int, matched []string) {
+// domain string. Each keyword match contributes pointsEach points. Matching is
+// case-insensitive substring matching. The caller supplies the per-tier weight
+// (generic tier = 1, brand tier = 3) so the two tiers share one scan routine.
+func matchKeywords(domain string, keywords []string, pointsEach int) (score int, matched []string) {
 	lower := strings.ToLower(domain)
 	for _, kw := range keywords {
 		if strings.Contains(lower, strings.ToLower(kw)) {
-			score += 2
+			score += pointsEach
 			matched = append(matched, kw)
 		}
 	}

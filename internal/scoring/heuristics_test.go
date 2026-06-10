@@ -11,48 +11,63 @@ func TestMatchKeywords(t *testing.T) {
 		name        string
 		domain      string
 		keywords    []string
+		pointsEach  int
 		wantScore   int
 		wantMatched []string
 	}{
 		{
-			name:        "single keyword match",
+			name:        "single brand keyword match scores per-tier weight",
 			domain:      "bitcoin-shop.com",
 			keywords:    []string{"bitcoin"},
-			wantScore:   2,
+			pointsEach:  3,
+			wantScore:   3,
 			wantMatched: []string{"bitcoin"},
 		},
 		{
-			name:        "multiple keyword matches",
+			name:        "single generic keyword match scores per-tier weight",
+			domain:      "login-shop.com",
+			keywords:    []string{"login"},
+			pointsEach:  1,
+			wantScore:   1,
+			wantMatched: []string{"login"},
+		},
+		{
+			name:        "multiple generic keyword matches",
 			domain:      "bitcoin-wallet-login.com",
 			keywords:    []string{"bitcoin", "wallet", "login"},
-			wantScore:   6,
+			pointsEach:  1,
+			wantScore:   3,
 			wantMatched: []string{"bitcoin", "wallet", "login"},
 		},
 		{
 			name:        "case insensitive matching",
 			domain:      "BITCOIN-WALLET.com",
 			keywords:    []string{"bitcoin", "wallet"},
-			wantScore:   4,
+			pointsEach:  3,
+			wantScore:   6,
 			wantMatched: []string{"bitcoin", "wallet"},
 		},
 		{
 			name:        "mixed case keywords and domain",
 			domain:      "Bitcoin-Shop.COM",
 			keywords:    []string{"BITCOIN", "Shop"},
-			wantScore:   4,
+			pointsEach:  1,
+			wantScore:   2,
 			wantMatched: []string{"BITCOIN", "Shop"},
 		},
 		{
 			name:        "partial match within domain",
 			domain:      "mybitcoindex.com",
 			keywords:    []string{"bitcoin"},
-			wantScore:   2,
+			pointsEach:  3,
+			wantScore:   3,
 			wantMatched: []string{"bitcoin"},
 		},
 		{
 			name:        "no match",
 			domain:      "example.com",
 			keywords:    []string{"bitcoin", "wallet"},
+			pointsEach:  3,
 			wantScore:   0,
 			wantMatched: nil,
 		},
@@ -60,6 +75,7 @@ func TestMatchKeywords(t *testing.T) {
 			name:        "empty domain",
 			domain:      "",
 			keywords:    []string{"bitcoin"},
+			pointsEach:  3,
 			wantScore:   0,
 			wantMatched: nil,
 		},
@@ -67,6 +83,7 @@ func TestMatchKeywords(t *testing.T) {
 			name:        "empty keywords list",
 			domain:      "bitcoin.com",
 			keywords:    []string{},
+			pointsEach:  3,
 			wantScore:   0,
 			wantMatched: nil,
 		},
@@ -74,13 +91,7 @@ func TestMatchKeywords(t *testing.T) {
 			name:        "nil keywords list",
 			domain:      "bitcoin.com",
 			keywords:    nil,
-			wantScore:   0,
-			wantMatched: nil,
-		},
-		{
-			name:        "empty domain and empty keywords",
-			domain:      "",
-			keywords:    []string{},
+			pointsEach:  3,
 			wantScore:   0,
 			wantMatched: nil,
 		},
@@ -88,21 +99,23 @@ func TestMatchKeywords(t *testing.T) {
 			name:        "keyword is entire domain",
 			domain:      "bitcoin",
 			keywords:    []string{"bitcoin"},
-			wantScore:   2,
+			pointsEach:  3,
+			wantScore:   3,
 			wantMatched: []string{"bitcoin"},
 		},
 		{
 			name:        "overlapping keyword substrings",
 			domain:      "wallet-walletconnect.com",
 			keywords:    []string{"wallet"},
-			wantScore:   2,
+			pointsEach:  1,
+			wantScore:   1,
 			wantMatched: []string{"wallet"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score, matched := matchKeywords(tt.domain, tt.keywords)
+			score, matched := matchKeywords(tt.domain, tt.keywords, tt.pointsEach)
 			assert.Equal(t, tt.wantScore, score)
 			assert.Equal(t, tt.wantMatched, matched)
 		})

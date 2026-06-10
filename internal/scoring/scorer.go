@@ -32,8 +32,17 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 	}
 
 	totalScore := 0
-	kwScore, matched := matchKeywords(domainName, profile.Keywords)
-	totalScore += kwScore
+
+	// Brand tier (+3 each) is the high-precision signal; generic tier (+1 each)
+	// is broad and noise-prone. Both feed the multi-keyword bonus.
+	brandScore, brandMatched := matchKeywords(domainName, profile.BrandKeywords, brandKeywordPoints)
+	genScore, genMatched := matchKeywords(domainName, profile.Keywords, genericKeywordPoints)
+	totalScore += brandScore + genScore
+
+	matched := make([]string, 0, len(brandMatched)+len(genMatched))
+	matched = append(matched, brandMatched...)
+	matched = append(matched, genMatched...)
+
 	totalScore += scoreTLD(domainName, profile.SuspiciousTLDs)
 	totalScore += scoreDomainLength(domainName)
 	totalScore += scoreHyphenDensity(domainName)
@@ -42,6 +51,10 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 
 	severity := classifySeverity(totalScore)
 
+	if len(matched) == 0 {
+		matched = nil
+	}
+
 	return domain.ScoredDomain{
 		Domain:          domainName,
 		Score:           totalScore,
@@ -49,6 +62,13 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 		MatchedKeywords: matched,
 	}
 }
+
+// Keyword tier weights. Brand keywords are high-precision impersonation
+// targets; generic keywords are broad terms that gain signal in combination.
+const (
+	brandKeywordPoints   = 3
+	genericKeywordPoints = 1
+)
 
 // classifySeverity maps a numeric score to a severity level.
 // HIGH >= 8, MED 5-7, LOW 1-4, empty string for 0.

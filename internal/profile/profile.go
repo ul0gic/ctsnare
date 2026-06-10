@@ -25,6 +25,7 @@ func NewManager(customProfiles map[string]domain.Profile) *Manager {
 	// Register built-in profiles.
 	m.profiles["crypto"] = CryptoProfile
 	m.profiles["phishing"] = PhishingProfile
+	m.profiles["ai"] = AIProfile
 	m.profiles["all"] = AllProfile
 
 	// Merge custom profiles. A custom profile can extend a built-in by name.
@@ -72,6 +73,7 @@ func resolveProfile(name string, custom domain.Profile, builtins map[string]doma
 		if base, ok := builtins[baseName]; ok {
 			return domain.Profile{
 				Name:           name,
+				BrandKeywords:  mergeUnique(base.BrandKeywords, custom.BrandKeywords),
 				Keywords:       mergeUnique(base.Keywords, custom.Keywords),
 				SuspiciousTLDs: mergeUnique(base.SuspiciousTLDs, custom.SuspiciousTLDs),
 				SkipSuffixes:   mergeUnique(base.SkipSuffixes, custom.SkipSuffixes),

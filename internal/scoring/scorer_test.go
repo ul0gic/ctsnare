@@ -9,8 +9,9 @@ import (
 
 func testProfile() *domain.Profile {
 	return &domain.Profile{
-		Name:     "test",
-		Keywords: []string{"bitcoin", "login", "wallet", "exchange", "verify"},
+		Name:          "test",
+		BrandKeywords: []string{"bitcoin", "paypal"},
+		Keywords:      []string{"login", "wallet", "exchange", "verify"},
 		SuspiciousTLDs: []string{
 			".xyz", ".top", ".icu",
 		},
@@ -35,15 +36,15 @@ func TestEngine_Score(t *testing.T) {
 		wantNoKeywords bool
 	}{
 		{
-			name:         "single keyword match scores LOW",
+			name:         "single brand keyword match scores LOW",
 			domain:       "bitcoin-news.com",
-			wantMinScore: 2,
-			wantMaxScore: 3,
+			wantMinScore: 3,
+			wantMaxScore: 4,
 			wantSeverity: domain.SeverityLow,
 			wantKeywords: []string{"bitcoin"},
 		},
 		{
-			name:         "two keyword matches scores LOW",
+			name:         "brand plus generic keyword scores LOW",
 			domain:       "bitcoin-wallet.com",
 			wantMinScore: 4,
 			wantMaxScore: 4,
@@ -53,15 +54,15 @@ func TestEngine_Score(t *testing.T) {
 		{
 			name:         "three keywords with bonus scores HIGH",
 			domain:       "bitcoin-wallet-login.xyz",
-			wantMinScore: 6,
+			wantMinScore: 8,
 			wantMaxScore: 20,
 			wantSeverity: domain.SeverityHigh,
 			wantKeywords: []string{"bitcoin", "login", "wallet"},
 		},
 		{
-			name:         "suspicious TLD adds point",
+			name:         "brand keyword plus suspicious TLD scores LOW",
 			domain:       "bitcoin-shop.xyz",
-			wantMinScore: 3,
+			wantMinScore: 4,
 			wantMaxScore: 5,
 			wantSeverity: domain.SeverityLow,
 			wantKeywords: []string{"bitcoin"},
@@ -93,21 +94,21 @@ func TestEngine_Score(t *testing.T) {
 		{
 			name:         "long domain adds point",
 			domain:       "this-is-a-very-long-bitcoin-domain-name.com",
-			wantMinScore: 4,
-			wantMaxScore: 4,
-			wantSeverity: domain.SeverityLow,
+			wantMinScore: 5,
+			wantMaxScore: 5,
+			wantSeverity: domain.SeverityMed,
 		},
 		{
-			name:         "hyphen-heavy domain adds point",
+			name:         "hyphen-heavy domain scores HIGH with brand and multi-bonus",
 			domain:       "bitcoin-secure-login-verify.com",
-			wantMinScore: 6,
+			wantMinScore: 8,
 			wantMaxScore: 20,
 			wantSeverity: domain.SeverityHigh,
 		},
 		{
 			name:         "number sequences add point",
 			domain:       "bitcoin1234.com",
-			wantMinScore: 3,
+			wantMinScore: 4,
 			wantMaxScore: 5,
 			wantSeverity: domain.SeverityLow,
 		},

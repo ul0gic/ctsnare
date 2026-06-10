@@ -69,7 +69,7 @@ type Store interface {
 // Implementations provide access to both built-in and user-defined profiles.
 type ProfileLoader interface {
 	// LoadProfile returns the named profile or an error if it does not exist.
-	// Built-in profile names are "crypto", "phishing", and "all".
+	// Built-in profile names are "crypto", "phishing", "ai", and "all".
 	LoadProfile(name string) (*Profile, error)
 
 	// ListProfiles returns all available profile names in sorted order,
