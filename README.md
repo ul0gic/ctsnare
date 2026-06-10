@@ -8,10 +8,10 @@
 
 Monitor Certificate Transparency logs in real-time to detect phishing, typosquatting, and brand impersonation domains the moment their TLS certificates are issued.
 
-ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scores new domains against keyword profiles using six heuristics, enriches hits with DNS and HTTP liveness probes, stores actionable hits in an embedded SQLite database, and gives you a live terminal dashboard plus a composable CLI query interface — all in a single, zero-dependency binary.
+ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scores new domains against tiered keyword profiles using a layered set of heuristics, enriches hits with DNS and HTTP liveness probes, stores actionable hits in an embedded SQLite database, and gives you a live terminal dashboard plus a composable CLI query interface — all in a single, zero-dependency binary.
 
 - **Real-time CT log polling** — direct RFC 6962 polling of Google Argon and Xenon logs. No relays, no accounts, no API keys.
-- **Scoring engine** — six heuristics with severity classification; only actionable hits reach the database.
+- **Scoring engine** — tiered brand/generic keywords plus punycode, typosquat, entropy, and certificate heuristics with severity classification; only actionable hits reach the database.
 - **Domain tracker** — `--domain` mode stores every cert issued for an apex you care about and all its subdomains.
 - **Enrichment** — automatic DNS resolution, hosting provider detection, and HTTP liveness probes per hit.
 - **TUI + CLI** — live dashboard with DB explorer, plus composable `query` filters for scripting and piping.
@@ -27,7 +27,7 @@ go install github.com/ul0gic/ctsnare/cmd/ctsnare@latest
 ctsnare watch
 ```
 
-This opens the TUI dashboard, polls Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing keywords), and stores hits scoring 4+ in `~/.local/share/ctsnare/ctsnare.db`. Press `Tab` to switch between Live Feed and DB Explorer, `p` to pause the feed, `?`-style hints are in each view, `q` to quit.
+This opens the TUI dashboard, polls Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing + ai keywords), and stores hits scoring 4+ in `~/.local/share/ctsnare/ctsnare.db`. Press `Tab` to switch between Live Feed and DB Explorer, `p` to pause the feed, `?`-style hints are in each view, `q` to quit.
 
 ```bash
 # Headless (server / cron) — polls and stores until SIGINT/SIGTERM
@@ -60,7 +60,7 @@ flowchart TD
     C -->|"candidate domains"| D
 
     subgraph Scoring ["Scoring Engine (internal/scoring)"]
-        D["Six Heuristics\nkeyword match · suspicious TLD\ndomain length · hyphen density\ndigit sequences · multi-keyword bonus"] --> E{"Score >= 4?"}
+        D["Tiered Heuristics\nbrand +3 · generic +1 keywords\npunycode/homoglyph · typosquat\nentropy/DGA · cert SAN & validity\nsuspicious TLD · structure · multi-keyword"] --> E{"Score >= 4?"}
     end
 
     E -->|"score 1-3 / zero"| F["Live Feed Only\n(not stored)"]
@@ -168,16 +168,23 @@ Every domain extracted from a certificate is scored independently; the total map
 
 | Heuristic | Points | Condition |
 |-----------|--------|-----------|
-| Keyword match | +2 per keyword | Domain contains a profile keyword (case-insensitive substring) |
+| Brand keyword | +3 per keyword | Domain contains a high-precision brand term (e.g. `paypal`, `metamask`, `openai`) |
+| Generic keyword | +1 per keyword | Domain contains a broad term (e.g. `login`, `swap`, `token`) |
+| Punycode / IDN | +2 | Any label is an `xn--` A-label |
+| Homoglyph keyword | +3 / +1 | A keyword matches only after decoding punycode and folding confusables (reported with `*` prefix) |
+| Typosquat | +3 | A label is 1–2 edits from a brand keyword without an exact match (reported with `~` prefix) |
 | Suspicious TLD | +1 | TLD is in the profile's TLD list |
 | Domain length | +1 | Registered domain exceeds 30 characters |
 | Hyphen density | +1 | 2 or more hyphens |
 | Digit sequence | +1 | 4 or more consecutive digits |
-| Multi-keyword bonus | +2 | 3 or more keywords matched |
+| Entropy / DGA | +1 | A label (≥10 chars) has high Shannon entropy, or a 4+ consonant run plus a digit |
+| Certificate SAN set | +1 | Certificate carries 20 or more SAN entries |
+| Short-lived brand cert | +1 | Certificate validity ≤ 90 days **and** a brand keyword matched |
+| Multi-keyword bonus | +2 | 3 or more keywords matched (across both tiers, including homoglyph/typosquat) |
 
-Severity: **HIGH** ≥ 8 · **MED** 5–7 · **LOW** 1–4. By default hits scoring 4+ are stored; 1–3 appear in the live feed only; 0 is discarded. Tune with `--min-score`.
+Severity: **HIGH** ≥ 8 · **MED** 5–7 · **LOW** 1–4. By default hits scoring 4+ are stored; 1–3 appear in the live feed only; 0 is discarded. Tune with `--min-score`. The brand tier is deliberately weighted so a single exact brand hit (+3) lands in LOW on its own — it needs corroborating structure, a suspicious TLD, or a second keyword to escalate, which keeps false positives out of the database.
 
-**Profiles.** Built-ins: `crypto` (45 keywords — exchanges, wallets, casinos), `phishing` (41 keywords — brands, credential bait), and `all` (both combined). Inspect any profile with `ctsnare profiles show <name>`, or define your own in TOML (see Configuration).
+**Profiles.** Built-ins: `crypto` (exchanges, wallets, casinos), `phishing` (brands, credential bait), `ai` (LLM-vendor impersonation — `openai`, `anthropic`, `claude`, …), and `all` (all combined). Each splits its terms into a high-precision **brand** tier (+3) and a **generic** tier (+1). Inspect any profile with `ctsnare profiles show <name>`, or define your own in TOML — set `brand_keywords` for the high tier and `keywords` for the generic tier (see Configuration).
 
 **Noise filtering.** Domains ending with known infrastructure suffixes (52 built-in globals — cloud providers, CDNs, PaaS, big tech) skip scoring entirely. Manage with `ctsnare skip list/add/remove/reset`; effective list = globals + your additions − your removals.
 
@@ -208,7 +215,8 @@ removals  = []
 [custom_profiles.brand]
 name            = "brand"
 description     = "Brand protection monitoring for Acme Corp"
-keywords        = ["acme", "acmecorp", "acme-bank", "acmepay"]
+brand_keywords  = ["acmecorp", "acmepay"]   # high tier, +3 each
+keywords        = ["acme", "acme-bank"]     # generic tier, +1 each
 suspicious_tlds = [".xyz", ".top", ".vip", ".click"]
 ```
 
