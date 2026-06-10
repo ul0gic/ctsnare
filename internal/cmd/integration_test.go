@@ -188,8 +188,8 @@ func TestQueryCommandWithPrePopulatedDB(t *testing.T) {
 			notEmpty: true,
 		},
 		{
-			name:     "filter by score-min",
-			args:     []string{"query", "--db", dbFile, "--score-min", "6"},
+			name:     "filter by min-score",
+			args:     []string{"query", "--db", dbFile, "--min-score", "6"},
 			contains: []string{"fake-bitcoin-exchange.xyz"},
 			notEmpty: true,
 		},
