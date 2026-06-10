@@ -26,6 +26,10 @@ func (m *mockScorer) Score(domainName string, _ *domain.Profile) domain.ScoredDo
 	}
 }
 
+func (m *mockScorer) ScoreWithCert(domainName string, p *domain.Profile, _ domain.CertMeta) domain.ScoredDomain {
+	return m.Score(domainName, p)
+}
+
 // mockStore implements domain.Store for testing.
 type mockStore struct {
 	mu   sync.Mutex

@@ -17,8 +17,16 @@ func NewEngine() *Engine {
 
 // Score runs all heuristics against the domain using the given profile and
 // returns a ScoredDomain. Domains matching a skip suffix are immediately
-// returned with a zero score.
+// returned with a zero score. Certificate-level heuristics are skipped; callers
+// with certificate context should use ScoreWithCert.
 func (e *Engine) Score(domainName string, profile *domain.Profile) domain.ScoredDomain {
+	return e.ScoreWithCert(domainName, profile, domain.CertMeta{})
+}
+
+// ScoreWithCert runs all of Score's heuristics plus the certificate-level
+// heuristics driven by cert. A zero CertMeta disables the cert heuristics, so
+// the result matches Score exactly.
+func (e *Engine) ScoreWithCert(domainName string, profile *domain.Profile, cert domain.CertMeta) domain.ScoredDomain {
 	// Check skip suffixes first -- infrastructure domains generate noise.
 	for _, suffix := range profile.SkipSuffixes {
 		if strings.HasSuffix(strings.ToLower(domainName), strings.ToLower(suffix)) {
@@ -63,6 +71,11 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 	totalScore += scoreNumberSequences(domainName)
 	totalScore += scoreDGA(domainName)
 	totalScore += scoreMultiKeywordBonus(len(matched))
+
+	// Certificate-level heuristics. A brand hit here means any literal, confusable,
+	// or typosquat brand match — all carry a brand-impersonation signal.
+	brandHit := len(brandMatched) > 0 || len(confMatched) > 0 || len(typoMatched) > 0
+	totalScore += scoreCert(cert, brandHit)
 
 	severity := classifySeverity(totalScore)
 

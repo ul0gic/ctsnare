@@ -29,6 +29,10 @@ func (s scoreStub) Score(domainName string, _ *domain.Profile) domain.ScoredDoma
 	}
 }
 
+func (s scoreStub) ScoreWithCert(domainName string, p *domain.Profile, _ domain.CertMeta) domain.ScoredDomain {
+	return s.Score(domainName, p)
+}
+
 // fakeCert builds a minimal certificate with a known issuer for hit assembly.
 func fakeCert() *x509.Certificate {
 	return &x509.Certificate{

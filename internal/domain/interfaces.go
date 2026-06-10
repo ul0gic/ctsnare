@@ -2,6 +2,20 @@ package domain
 
 import "context"
 
+// CertMeta carries the minimal certificate metadata used by certificate-level
+// scoring heuristics. It is populated by the poller from the parsed x509
+// certificate. The zero value is valid and disables the cert-based heuristics.
+type CertMeta struct {
+	// SANCount is the number of Subject Alternative Name DNS entries on the cert.
+	// A very large SAN set is a weak signal of bulk/disposable certificate use.
+	SANCount int
+
+	// ValidityDays is the certificate validity period (NotAfter - NotBefore)
+	// rounded to whole days. Short-lived certs on brand-bait domains are a signal
+	// of free-CA abuse. Zero means unknown (heuristic skipped).
+	ValidityDays int
+}
+
 // Scorer scores a domain against a profile's keyword heuristics.
 // Implementations apply all configured heuristics and return a ScoredDomain
 // with the total score, severity classification, and matched keywords.
@@ -11,6 +25,11 @@ type Scorer interface {
 	// Returns a ScoredDomain with Score == 0 when the domain matches a skip suffix
 	// or has no keyword matches.
 	Score(domain string, profile *Profile) ScoredDomain
+
+	// ScoreWithCert runs all of Score's heuristics plus certificate-level
+	// heuristics using the supplied CertMeta. Passing a zero CertMeta yields the
+	// same result as Score, so callers without certificate context can use Score.
+	ScoreWithCert(domain string, profile *Profile, cert CertMeta) ScoredDomain
 }
 
 // Store provides persistence operations for hits.

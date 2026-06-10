@@ -239,7 +239,7 @@ func (p *Poller) processTracked(ctx context.Context, d string, sanDomains []stri
 		return false
 	}
 
-	scored := p.scorer.Score(d, p.profile)
+	scored := p.scorer.ScoreWithCert(d, p.profile, certMeta(cert))
 	hit := buildTrackedHit(d, sanDomains, cert, p.logName, p.session, scored)
 
 	// Surface the tracked hit on the live feed for visibility.
@@ -259,7 +259,7 @@ func (p *Poller) processTracked(ctx context.Context, d string, sanDomains []stri
 // profile, streamed to the feed, and persisted only when they meet the minimum
 // score threshold.
 func (p *Poller) processScored(ctx context.Context, d string, sanDomains []string, cert *x509.Certificate) bool {
-	scored := p.scorer.Score(d, p.profile)
+	scored := p.scorer.ScoreWithCert(d, p.profile, certMeta(cert))
 	if scored.Score == 0 {
 		p.publishDiscard(d)
 		return false
@@ -332,6 +332,21 @@ func buildTrackedHit(d string, sanDomains []string, cert *x509.Certificate, logN
 	}
 	hit.IssuerCN = cert.Issuer.CommonName
 	return hit
+}
+
+// certMeta extracts the minimal certificate metadata used by the scoring
+// engine's certificate-level heuristics: the SAN count and the validity period
+// in whole days. A nil cert yields a zero CertMeta, which disables those
+// heuristics.
+func certMeta(cert *x509.Certificate) domain.CertMeta {
+	if cert == nil {
+		return domain.CertMeta{}
+	}
+	meta := domain.CertMeta{SANCount: len(cert.DNSNames)}
+	if !cert.NotAfter.IsZero() && !cert.NotBefore.IsZero() && cert.NotAfter.After(cert.NotBefore) {
+		meta.ValidityDays = int(cert.NotAfter.Sub(cert.NotBefore).Hours() / 24)
+	}
+	return meta
 }
 
 // publishDiscard reports a zero-scored domain to the discard feed without

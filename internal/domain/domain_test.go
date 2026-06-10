@@ -42,6 +42,10 @@ type stubScorer struct{}
 
 func (stubScorer) Score(_ string, _ *Profile) ScoredDomain { return ScoredDomain{} }
 
+func (stubScorer) ScoreWithCert(_ string, _ *Profile, _ CertMeta) ScoredDomain {
+	return ScoredDomain{}
+}
+
 // TestInterfacesImplementable asserts the domain interfaces can be satisfied.
 // The real value is at compile time; the runtime body just touches the stub so
 // it isn't reported as unused.
