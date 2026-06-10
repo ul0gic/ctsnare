@@ -26,6 +26,7 @@ them using configurable heuristic profiles, and stores hits in a local
 SQLite database. A terminal UI provides a live feed and historical
 exploration of flagged domains.`,
 	PersistentPreRunE: initLogging,
+	Version:           resolveVersion(),
 }
 
 func init() {
