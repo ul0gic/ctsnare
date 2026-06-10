@@ -51,6 +51,12 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 	totalScore += confScore
 	matched = append(matched, confMatched...)
 
+	// Typosquat: brand near-misses one or two edits away (e.g. "paypol",
+	// "metmask") that the literal substring scan cannot catch.
+	typoScore, typoMatched := scoreTyposquat(domainName, profile.BrandKeywords)
+	totalScore += typoScore
+	matched = append(matched, typoMatched...)
+
 	totalScore += scoreTLD(domainName, profile.SuspiciousTLDs)
 	totalScore += scoreDomainLength(domainName)
 	totalScore += scoreHyphenDensity(domainName)
