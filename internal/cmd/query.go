@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +18,7 @@ import (
 var (
 	queryKeyword    string
 	queryScoreMin   int
-	querySince      time.Duration
+	querySince      string
 	queryTLD        string
 	querySession    string
 	querySeverity   string
@@ -46,13 +49,13 @@ Examples:
 func init() {
 	queryCmd.Flags().StringVar(&queryKeyword, "keyword", "", "filter by keyword substring match against matched keywords")
 	queryCmd.Flags().IntVar(&queryScoreMin, "score-min", 0, "minimum score (HIGH=8+, MED=5-7, LOW=1-4)")
-	queryCmd.Flags().DurationVar(&querySince, "since", 0, `only show hits from within this duration (e.g., "1h", "24h", "7d")`)
+	queryCmd.Flags().StringVar(&querySince, "since", "", `only show hits from within this duration (e.g., "1h", "24h", "7d")`)
 	queryCmd.Flags().StringVar(&queryTLD, "tld", "", `filter by TLD suffix (e.g., ".xyz" or "xyz")`)
 	queryCmd.Flags().StringVar(&queryDomain, "domain", "", "filter to an exact apex + all its subdomains (e.g., openai.com matches api.openai.com)")
 	queryCmd.Flags().StringVar(&querySession, "session", "", "filter by session tag set with 'ctsnare watch --session'")
 	queryCmd.Flags().StringVar(&querySeverity, "severity", "", "filter by severity: HIGH, MED, or LOW")
 	queryCmd.Flags().StringVar(&queryFormat, "format", "table", "output format: table (default), json (JSONL), or csv")
-	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results to return (default: 50)")
+	queryCmd.Flags().IntVar(&queryLimit, "limit", 50, "maximum number of results to return")
 	queryCmd.Flags().BoolVar(&queryBookmarked, "bookmarked", false, "show only bookmarked hits")
 	queryCmd.Flags().BoolVar(&queryLiveOnly, "live-only", false, "show only domains that responded to HTTP liveness probe")
 
@@ -66,6 +69,11 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 	config.MergeFlags(cfg, dbPath, 0, 0, 0, 0)
+
+	since, err := parseSince(querySince)
+	if err != nil {
+		return fmt.Errorf("invalid --since value %q: %w", querySince, err)
+	}
 
 	// Check if the database file exists before attempting to open it.
 	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
@@ -82,7 +90,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	filter := domain.QueryFilter{
 		Keyword:  queryKeyword,
 		ScoreMin: queryScoreMin,
-		Since:    querySince,
+		Since:    since,
 		TLD:      queryTLD,
 		Session:  querySession,
 		Severity: querySeverity,
@@ -105,6 +113,23 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	}
 
 	return WriteQueryOutput(hits, queryFormat)
+}
+
+// parseSince parses a duration string, additionally accepting a "d" (day)
+// suffix that time.ParseDuration lacks (e.g. "7d" → 168h). An empty string
+// means no time filter.
+func parseSince(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
+		if err != nil {
+			return 0, errors.New(`expected a number before "d"`)
+		}
+		return time.Duration(n * 24 * float64(time.Hour)), nil
+	}
+	return time.ParseDuration(s)
 }
 
 // WriteQueryOutput writes hits in the requested format to stdout.

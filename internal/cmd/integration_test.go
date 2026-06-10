@@ -24,7 +24,7 @@ func resetFlags() {
 	verbose = false
 	queryKeyword = ""
 	queryScoreMin = 0
-	querySince = 0
+	querySince = ""
 	queryTLD = ""
 	querySession = ""
 	querySeverity = ""
