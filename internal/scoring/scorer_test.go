@@ -95,7 +95,7 @@ func TestEngine_Score(t *testing.T) {
 			name:         "long domain adds point",
 			domain:       "this-is-a-very-long-bitcoin-domain-name.com",
 			wantMinScore: 5,
-			wantMaxScore: 5,
+			wantMaxScore: 6,
 			wantSeverity: domain.SeverityMed,
 		},
 		{

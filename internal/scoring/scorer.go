@@ -61,6 +61,7 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 	totalScore += scoreDomainLength(domainName)
 	totalScore += scoreHyphenDensity(domainName)
 	totalScore += scoreNumberSequences(domainName)
+	totalScore += scoreDGA(domainName)
 	totalScore += scoreMultiKeywordBonus(len(matched))
 
 	severity := classifySeverity(totalScore)
