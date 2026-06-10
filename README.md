@@ -10,559 +10,44 @@ Monitor Certificate Transparency logs in real-time to detect phishing, typosquat
 
 ctsnare polls public CT logs directly (RFC 6962 API, no third-party relay), scores new domains against keyword profiles using six heuristics, enriches hits with DNS and HTTP liveness probes, stores actionable hits in an embedded SQLite database, and gives you a live terminal dashboard plus a composable CLI query interface — all in a single, zero-dependency binary.
 
----
-
-## Features
-
-- **Real-time CT log polling** — Direct RFC 6962 HTTP polling of Google Argon, Xenon, and other CT logs. No WebSocket relays, no accounts, no API keys.
-- **Scoring engine** — Six heuristics score each domain: keyword density, suspicious TLD, domain length, hyphen count, digit sequences, and multi-keyword bonus. By default only hits scoring 4 or higher are persisted (LOW 4 through HIGH) — score-0 noise and sub-threshold churn stay out of your database. Tune the cutoff with `--score-min`.
-- **Enrichment pipeline** — Automatic DNS resolution, CIDR-based hosting provider detection, and HTTP HEAD liveness probes for every stored hit. See which domains are actually live.
-- **Keyword profiles** — Built-in profiles for crypto scams and phishing. Define your own in TOML with keyword lists and TLD boost sets.
-- **Persistent SQLite storage** — Actionable hits stored in WAL-mode SQLite. Crashes don't lose data. Deduplication by domain.
-- **TUI dashboard** — Live feed view with pause control, DB explorer with bookmarks and batch delete, detail drill-down with enrichment data. Sort, filter, and manage hits without stopping polling.
-- **CLI query interface** — Composable filters for scripting, piping, and ad hoc investigation. Filter by liveness, bookmarks, severity, keywords, TLD, and more.
-- **Single binary** — One file, no runtime, no setup. `go install` or download from GitHub Releases.
-
----
-
-## Installation
-
-### go install (recommended)
-
-```bash
-go install github.com/ul0gic/ctsnare/cmd/ctsnare@latest
-```
-
-### Download binary
-
-Pre-built binaries for Linux, macOS, and Windows are available on the [GitHub Releases](https://github.com/ul0gic/ctsnare/releases) page.
-
-```bash
-# Linux amd64 example
-curl -L https://github.com/ul0gic/ctsnare/releases/latest/download/ctsnare_linux_amd64.tar.gz | tar xz
-chmod +x ctsnare
-sudo mv ctsnare /usr/local/bin/
-```
-
-### Build from source
-
-Requires Go 1.26 or later.
-
-```bash
-git clone https://github.com/ul0gic/ctsnare.git
-cd ctsnare
-go build -o ctsnare ./cmd/ctsnare
-```
+- **Real-time CT log polling** — direct RFC 6962 polling of Google Argon and Xenon logs. No relays, no accounts, no API keys.
+- **Scoring engine** — six heuristics with severity classification; only actionable hits reach the database.
+- **Domain tracker** — `--domain` mode stores every cert issued for an apex you care about and all its subdomains.
+- **Enrichment** — automatic DNS resolution, hosting provider detection, and HTTP liveness probes per hit.
+- **TUI + CLI** — live dashboard with DB explorer, plus composable `query` filters for scripting and piping.
+- **Single binary** — pure-Go SQLite, no runtime, no setup.
 
 ---
 
 ## Quick Start
 
-Start monitoring:
-
 ```bash
+go install github.com/ul0gic/ctsnare/cmd/ctsnare@latest
+
 ctsnare watch
 ```
 
-This opens the TUI dashboard, begins polling Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing keywords), and stores every hit scoring 4 or higher in `~/.local/share/ctsnare/ctsnare.db`.
-
-Press `Tab` to switch between the Live Feed and the DB Explorer. Press `p` to pause/resume the feed. Press `q` to quit.
-
-### Headless mode (server / cron / background)
+This opens the TUI dashboard, polls Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing keywords), and stores hits scoring 4+ in `~/.local/share/ctsnare/ctsnare.db`. Press `Tab` to switch between Live Feed and DB Explorer, `p` to pause the feed, `?`-style hints are in each view, `q` to quit.
 
 ```bash
+# Headless (server / cron) — polls and stores until SIGINT/SIGTERM
 ctsnare watch --headless
-```
 
-Polls and stores without the TUI. Runs until SIGINT or SIGTERM.
-
-### Backtrack for immediate results
-
-```bash
-# Start 5000 entries behind the log tip — processes recent history immediately
+# Start 5000 entries behind the log tip for immediate results
 ctsnare watch --backtrack 5000
-```
 
-### Query stored hits
-
-```bash
-# Show the 50 most recent hits (table format)
-ctsnare query
-
-# Show only HIGH severity hits in JSON
-ctsnare query --severity HIGH --format json
-
-# All hits containing "casino" in the last 12 hours
-ctsnare query --keyword casino --since 12h
-
-# Only live domains (responded to HTTP probe)
-ctsnare query --live-only
-
-# Show bookmarked hits
-ctsnare query --bookmarked
-
-# Composable: HIGH crypto hits on suspicious TLDs, piped to jq
-ctsnare query --keyword wallet --severity HIGH --since 24h --format json | jq '.domain'
-```
-
----
-
-## Subcommand Reference
-
-### `ctsnare watch`
-
-Start live CT log monitoring with the TUI dashboard or in headless mode.
-
-```
-ctsnare watch [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--profile` | `all` | Keyword profile to use for scoring (`crypto`, `phishing`, `all`, or a custom profile name) |
-| `--session` | _(empty)_ | Tag all hits from this run with a session name for grouping and filtering later |
-| `--headless` | `false` | Run without TUI — poll and store only, suitable for background processes |
-| `--batch-size` | `256` | Number of CT log entries to fetch per poll request |
-| `--poll-interval` | `5s` | How long to wait between polls per log (e.g., `1s`, `5s`, `30s`) |
-| `--backtrack` | `0` | Start N entries behind the current log tip for immediate results |
-| `--min-score` | `0` | Minimum score to store a hit (default: store all scored hits) |
-| `--domain` | _(none)_ | Track an exact apex **and all its subdomains**, storing every matching certificate. Repeatable. Enables tracker mode (see below) |
-
-Global flags available on all commands:
-
-| Flag | Description |
-|------|-------------|
-| `--config` | Path to TOML config file |
-| `--db` | Override the database path |
-| `--verbose` | Enable debug logging to stderr (JSON format) |
-
-**Examples:**
-
-```bash
-# Watch with crypto profile, tag hits as "morning-run"
-ctsnare watch --profile crypto --session morning-run
-
-# Headless monitoring with custom poll interval
-ctsnare watch --headless --poll-interval 10s
-
-# Fast polling with large batches
-ctsnare watch --poll-interval 1s --batch-size 1024
-
-# Backtrack for immediate results
-ctsnare watch --backtrack 5000
-```
-
-#### Domain-tracker mode (`--domain`)
-
-Pass one or more `--domain` flags to monitor newly issued certificates for a
-specific apex domain **and all of its subdomains**. This is distinct from
-keyword scoring: in tracker mode ctsnare stores **every** matching certificate
-unconditionally, regardless of score or keyword profile.
-
-```bash
-# Track a single brand (apex + every subdomain)
+# Track a brand: store EVERY cert for the apex + all subdomains
 ctsnare watch --domain openai.com --session openai
 
-# Track several brands at once (repeat the flag)
-ctsnare watch --domain openai.com --domain anthropic.com --session brands
-
-# Catch recent issuance at startup, then continue live
-ctsnare watch --domain openai.com --backtrack 50000 --session openai
+# Query what you've collected
+ctsnare query --severity HIGH --since 24h --format json | jq '.domain'
 ```
 
-**Matching is exact apex + subdomains.** `--domain openai.com` matches
-`openai.com`, `api.openai.com`, and `login.openai.com`, but **not**
-`notopenai.com` or `openai.com.evil.com` (lookalikes and suffix traps are
-rejected). Use the keyword profiles for fuzzy/lookalike detection; `--domain`
-is for tracking a domain you actually own or care about precisely.
-
-Notes:
-
-- **`--min-score` and keyword-profile gating have no effect** in tracker mode —
-  matching certificates are always stored. `--profile` may still be set (it
-  populates informational score/keyword fields) but is not required.
-- Stored rows are tagged with the profile name `domain-track` so they are
-  attributable. **Pair with `--session`** to group a tracking run for later
-  `query --session` filtering.
-- **`--backtrack` counts log ENTRIES, not time.** It is the fastest way to get
-  immediate results for a tracked domain at startup. CT logs ingest at very high
-  volume, so backtrack is best for catching *recent* issuance, not deep
-  historical lookup — for a domain's full certificate history use
-  [crt.sh](https://crt.sh) instead.
-
-**TUI keybindings:**
-
-#### Feed view
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Switch to DB Explorer |
-| `p` | Pause / resume feed |
-| `j` / `k` | Scroll down / up |
-| `q` | Quit |
-
-#### Explorer view
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Switch to Live Feed |
-| `Enter` | Drill into selected record |
-| `f` | Open filter overlay |
-| `s` | Cycle sort column and direction |
-| `r` | Reload from database |
-| `Space` | Toggle selection on current row |
-| `a` | Select all visible |
-| `A` | Deselect all |
-| `b` | Toggle bookmark on current row |
-| `d` | Delete current row (with confirmation) |
-| `D` | Delete all selected rows (with confirmation) |
-| `C` | Clear entire database (with confirmation) |
-| `Esc` | Back / dismiss overlay |
-| `q` | Quit |
-
----
-
-### `ctsnare query`
-
-Search and filter stored hits from the local database. Outputs to stdout.
-
-```
-ctsnare query [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--keyword` | _(none)_ | Filter hits where matched keywords contain this substring |
-| `--score-min` | `0` | Only show hits with score at or above this threshold |
-| `--severity` | _(none)_ | Filter by severity: `HIGH`, `MED`, or `LOW` |
-| `--since` | _(none)_ | Only hits from this duration ago (e.g., `1h`, `24h`, `7d`) |
-| `--tld` | _(none)_ | Filter by TLD suffix (e.g., `.xyz`, `top`) |
-| `--domain` | _(none)_ | Filter to an exact apex **and all its subdomains** (e.g., `openai.com` matches `api.openai.com` but not `notopenai.com`) |
-| `--session` | _(none)_ | Filter hits by session tag |
-| `--live-only` | `false` | Show only domains that responded to HTTP liveness probe |
-| `--bookmarked` | `false` | Show only bookmarked hits |
-| `--format` | `table` | Output format: `table`, `json`, or `csv` |
-| `--limit` | `50` | Maximum number of results to return |
-
-**Examples:**
-
-```bash
-# Show all HIGH severity hits
-ctsnare query --severity HIGH
-
-# Recent phishing hits on suspicious TLDs
-ctsnare query --keyword login --tld .xyz --since 6h
-
-# Score 5 or higher, JSON output
-ctsnare query --score-min 5 --format json
-
-# Only live domains
-ctsnare query --live-only --severity HIGH
-
-# All hits from a named session, CSV for spreadsheet import
-ctsnare query --session midnight-run --format csv > midnight-run.csv
-
-# Every tracked certificate for a domain and its subdomains
-ctsnare query --domain openai.com --session openai
-
-# Composable filter for threat hunting
-ctsnare query --keyword metamask --severity HIGH --since 24h --format json | jq '.domain'
-```
-
----
-
-### `ctsnare db`
-
-Database management commands.
-
-#### `ctsnare db stats`
-
-Show aggregate statistics about stored hits.
-
-```bash
-ctsnare db stats
-```
-
-#### `ctsnare db clear`
-
-Delete hits from the database. Requires `--confirm` to prevent accidental deletion.
-
-```bash
-# Clear all hits
-ctsnare db clear --confirm
-
-# Clear only hits from a specific session
-ctsnare db clear --session morning-run --confirm
-```
-
-#### `ctsnare db export`
-
-Export hits to a file or stdout.
-
-```bash
-# Export all hits as JSONL to stdout
-ctsnare db export
-
-# Export as CSV to a file
-ctsnare db export --format csv --output hits.csv
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--format` | `jsonl` | Export format: `jsonl` or `csv` |
-| `--output` | _(stdout)_ | Output file path; writes to stdout if not specified |
-
-#### `ctsnare db path`
-
-Print the database file path.
-
-```bash
-ctsnare db path
-```
-
----
-
-### `ctsnare profiles`
-
-List and inspect keyword profiles.
-
-```bash
-# List all available profiles
-ctsnare profiles
-
-# Show full details of a profile
-ctsnare profiles show crypto
-ctsnare profiles show phishing
-ctsnare profiles show all
-```
-
----
-
-### `ctsnare skip`
-
-Manage the domain skip suffix whitelist. The skip list prevents infrastructure noise (cloud providers, CDNs, big tech) from flooding results.
-
-The system has three layers:
-
-1. **Global (hardcoded)** — Cloud providers, CDNs, PaaS, big tech infra. Always skipped.
-2. **User additions** — Extra domains you want to skip. Persisted to config file.
-3. **User removals** — Globals you want to un-skip (to monitor them specifically).
-
-Effective skip list = globals + additions - removals
-
-#### `ctsnare skip list`
-
-Show the effective skip list with source annotations.
-
-```bash
-ctsnare skip list
-```
-
-#### `ctsnare skip add`
-
-Add domains to the user skip list. Persisted to `~/.config/ctsnare/config.toml`.
-
-```bash
-ctsnare skip add sailpoint.com jpmchase.net
-```
-
-#### `ctsnare skip remove`
-
-Remove a user addition, or un-skip a global to start scoring it again.
-
-```bash
-# Remove a user addition
-ctsnare skip remove sailpoint.com
-
-# Un-skip a global (e.g., to investigate Google infra specifically)
-ctsnare skip remove google.com
-```
-
-#### `ctsnare skip reset`
-
-Clear all user overrides and return to globals only.
-
-```bash
-ctsnare skip reset --confirm
-```
-
----
-
-## Configuration
-
-ctsnare works with zero configuration. All defaults are sensible for immediate use.
-
-### Config file
-
-Optional TOML config at `~/.config/ctsnare/config.toml` (or specify with `--config`):
-
-```toml
-# CT logs to poll (defaults: Google Argon 2026h1, Argon 2026h2, Xenon 2026h1)
-[[ct_logs]]
-url  = "https://ct.googleapis.com/logs/us1/argon2026h1"
-name = "Google Argon 2026h1"
-
-[[ct_logs]]
-url  = "https://ct.googleapis.com/logs/us1/argon2026h2"
-name = "Google Argon 2026h2"
-
-[[ct_logs]]
-url  = "https://ct.googleapis.com/logs/eu1/xenon2026h1"
-name = "Google Xenon 2026h1"
-
-# Profile to use when --profile flag is not set
-default_profile = "all"
-
-# Entries fetched per poll per log (default: 256)
-batch_size = 256
-
-# How long to wait between polls per log (default: 5s)
-poll_interval = "5s"
-
-# Start N entries behind the log tip (default: 0, start at tip)
-backtrack = 0
-
-# Database path (default: XDG-compliant path)
-# db_path = "/home/user/.local/share/ctsnare/ctsnare.db"
-
-# User overrides to the skip suffix list
-# Managed via `ctsnare skip add/remove/reset`
-[skip_overrides]
-# Extra domains to skip (on top of built-in globals)
-additions = ["sailpoint.com", "jpmchase.net", "aws.dev"]
-# Built-in domains to un-skip (to monitor them specifically)
-removals = []
-```
-
-### Configuration precedence
-
-```
-Defaults < config file < CLI flags
-```
-
-CLI flags always win. Zero values in the config file fall back to defaults.
-
-### Defaults
-
-| Setting | Default |
-|---------|---------|
-| Database path | `~/.local/share/ctsnare/ctsnare.db` (XDG-compliant) |
-| Config path | `~/.config/ctsnare/config.toml` (XDG-compliant) |
-| Default profile | `all` |
-| Batch size | 256 entries per poll |
-| Poll interval | 5 seconds |
-| CT logs | Google Argon 2026h1, Argon 2026h2, Xenon 2026h1 |
-| Skip list | 52 global infrastructure domains (see `ctsnare skip list`) |
-
-### Custom profiles
-
-Define your own keyword profile in the config file:
-
-```toml
-[custom_profiles.brand]
-name           = "brand"
-description    = "Brand protection monitoring for Acme Corp"
-keywords       = ["acme", "acmecorp", "acme-bank", "acmepay"]
-suspicious_tlds = [".xyz", ".top", ".vip", ".click"]
-skip_suffixes  = []
-
-# Extend an existing built-in profile
-[custom_profiles.crypto-extended]
-description    = "extends:crypto"
-keywords       = ["pump", "rug", "honeypot", "presale"]
-```
-
-```bash
-ctsnare watch --profile brand
-ctsnare watch --profile crypto-extended
-```
-
-All snake_case keys above (`name`, `keywords`, `suspicious_tlds`,
-`skip_suffixes`, `description`) are honored exactly as written.
-
----
-
-## Built-in Profiles
-
-| Profile | Keywords | Suspicious TLDs | Description |
-|---------|----------|-----------------|-------------|
-| `crypto` | 45 | 14 | Cryptocurrency scams, underground casinos, and financial fraud |
-| `phishing` | 41 | 15 | Credential phishing and brand impersonation |
-| `all` | 86 | 15 | Combined — all keywords and TLDs from crypto + phishing |
-
-**crypto keywords:** bitcoin, ethereum, binance, coinbase, metamask, trustwallet, ledger, trezor, opensea, uniswap, pancakeswap, solana, cardano, blockchain, airdrop, presale, giveaway, rugpull, moonshot, pump-and, freemint, defi, swap, staking, yield-farm, liquidity, flashloan, smartcontract, casino, jackpot, sportsbet, 1xbet, bet365, betway, slots, poker, roulette, blackjack, lottery, gambling, wallet, token, mining, crypto, nft
-
-**phishing keywords:** paypal, netflix, microsoft, instagram, facebook, whatsapp, telegram, dropbox, docusign, linkedin, snapchat, tiktok, twitter, discord, spotify, chase, wellsfargo, bankofamerica, citibank, hsbc, barclays, santander, capitalone, dhl, fedex, usps, ups-delivery, royalmail, signin, login, verify, password, credential, banking, webscr, authenticate, suspended, unauthorized, security-alert, helpdesk, verification
-
-**Suspicious TLDs:** `.xyz`, `.top`, `.vip`, `.win`, `.bet`, `.casino`, `.click`, `.buzz`, `.icu`, `.monster`, `.quest`, `.sbs`, `.cfd`, `.rest`, `.info`, `.tk`, `.ml`, `.ga`, `.cf`
-
----
-
-## Scoring
-
-Every domain extracted from a certificate is scored independently. The total score maps to a severity level.
-
-### Heuristics
-
-| Heuristic | Points | Condition |
-|-----------|--------|-----------|
-| Keyword match | +2 per keyword | Domain contains any keyword from the active profile (case-insensitive substring) |
-| Suspicious TLD | +1 | Domain ends with a TLD from the profile's TLD list |
-| Domain length | +1 | Registered domain portion exceeds 30 characters |
-| Hyphen density | +1 | Registered domain contains 2 or more hyphens |
-| Digit sequence | +1 | Domain contains 4 or more consecutive digits |
-| Multi-keyword bonus | +2 | 3 or more keywords matched on a single domain |
-
-### Severity thresholds
-
-| Severity | Score | Meaning |
-|----------|-------|---------|
-| HIGH | >= 8 | Near-certain malicious intent. Multi-keyword hit on a sketchy TLD. |
-| MED | 5-7 | Suspicious. Worth investigating. |
-| LOW | 1-4 | Single keyword or heuristic-only match. Borderline — may be noise. |
-
-### What gets stored
-
-By default, hits scoring 4 or higher are persisted to the database — that spans the upper half of LOW (4) through MED and HIGH. Hits scoring 1–3 appear in the live feed for visibility but are not stored. Adjust the cutoff with `--score-min`.
-
-A score of 0 (no heuristic fired, or the domain matches a skip suffix) is discarded entirely.
-
-Note: a score of 4 can be reached without any keyword match (e.g. suspicious TLD + length + hyphen + digit-run), so the stored set is "score >= 4," not "keyword matches only."
-
-### Enrichment
-
-Every stored hit is automatically enriched in the background:
-
-- **DNS resolution** — Resolves the domain to IP addresses
-- **Hosting provider detection** — Maps resolved IPs to known hosting providers via CIDR ranges (Cloudflare, AWS, GCP, Azure, etc.)
-- **HTTP liveness probe** — HEAD request to check if the domain is actually serving content, with the HTTP status code recorded
-
-Enrichment results appear in the detail view and can be filtered with `--live-only`.
-
-### Noise filtering
-
-Infrastructure platforms generate enormous certificate churn. ctsnare skips scoring entirely for domains ending with known infrastructure suffixes (52 built-in globals covering cloud providers, CDNs, PaaS platforms, and big tech domains).
-
-The skip list is fully configurable:
-
-```bash
-# See what's being skipped
-ctsnare skip list
-
-# Add a noisy domain you discovered
-ctsnare skip add sailpoint.com
-
-# Un-skip a global to investigate it
-ctsnare skip remove google.com
-```
-
-User overrides are persisted to `~/.config/ctsnare/config.toml`. See [`ctsnare skip`](#ctsnare-skip) for details.
+Pre-built binaries for Linux, macOS, and Windows are on the [Releases](https://github.com/ul0gic/ctsnare/releases) page; or build from source with Go 1.26+ (`go build -o ctsnare ./cmd/ctsnare`).
 
 ---
 
 ## Architecture
-
-### Data flow
 
 ```mermaid
 flowchart TD
@@ -599,96 +84,154 @@ flowchart TD
     style G fill:#ef4444,color:#fff
 ```
 
-### Key design decisions
+**Key design decisions:**
 
-**Decoupled polling and display.** Pollers are goroutines that push scored hits through buffered channels. The TUI subscribes to these channels — it never controls or blocks the pollers. Switching views, opening the filter overlay, or drilling into a record has zero effect on polling throughput.
-
-**Score-based storage threshold.** By default only hits scoring 4 or higher (`--score-min`, default 4) are persisted, spanning the upper half of LOW through HIGH. This keeps the database focused on actionable intelligence while the live feed shows all activity for situational awareness.
-
-**Background enrichment.** A rate-limited worker pool (5 workers) probes each stored domain for DNS records, hosting provider, and HTTP liveness. Results are persisted and streamed to the TUI in real-time.
-
-**Pure Go SQLite.** `modernc.org/sqlite` compiles SQLite directly into the binary with no CGo. The database engine ships inside the tool — no system libraries, no C compiler needed to build or run.
-
-**WAL mode with busy timeout.** Write-Ahead Logging gives crash safety and allows concurrent readers (TUI queries) alongside concurrent writers (poller goroutines). A 5-second busy timeout prevents silent data loss under write contention.
-
-**Upsert deduplication.** The same domain appearing in multiple certificates is updated in-place rather than creating duplicate rows. Domain uniqueness is enforced at the database level.
-
-**Config cascade.** Defaults → TOML config file → CLI flags. Zero configuration required to run. Every default is overridable without a config file.
-
-### Directory layout
+- **Decoupled polling and display.** Pollers push scored hits through buffered channels; the TUI subscribes and never blocks polling.
+- **Score-based storage.** Only hits scoring 4+ persist (tunable with `--min-score`); the live feed shows everything for situational awareness.
+- **Background enrichment.** A rate-limited worker pool (5 workers) probes each stored domain for DNS, hosting provider, and HTTP liveness.
+- **Pure Go SQLite** (`modernc.org/sqlite`) in WAL mode with a busy timeout — crash-safe, concurrent readers and writers, no CGo, no system libraries.
+- **Upsert deduplication.** The same domain across multiple certs updates in place; uniqueness enforced at the database level.
+- **Config cascade.** Defaults → TOML config → CLI flags. Zero configuration required.
 
 ```
 ctsnare/
 ├── cmd/ctsnare/         Entry point
 ├── internal/
 │   ├── domain/          Shared types and interfaces (Hit, Scorer, Store, Profile)
-│   ├── domainutil/      Base domain extraction utilities
+│   ├── domainutil/      Apex/subdomain matching utilities
 │   ├── config/          TOML config loading, skip suffix management
-│   ├── profile/         Keyword profile management and built-in profiles
+│   ├── profile/         Keyword profiles (built-in + custom)
 │   ├── scoring/         Domain scoring heuristics
 │   ├── storage/         SQLite data layer (upsert, query, export)
 │   ├── poller/          CT log HTTP client and polling goroutines
 │   ├── enrichment/      DNS resolution, hosting detection, HTTP liveness
-│   ├── tui/             Bubble Tea TUI (feed, explorer, detail, filter views)
+│   ├── tui/             Bubble Tea TUI (feed, explorer, detail, filter)
 │   └── cmd/             Cobra subcommand definitions
-├── go.mod
-├── Makefile
-└── README.md
+```
+
+---
+
+## Commands
+
+Every command has full flag documentation and examples via `--help`.
+
+| Command | What it does |
+|---------|--------------|
+| `ctsnare watch` | Live CT monitoring — TUI by default, `--headless` for servers |
+| `ctsnare query` | Search stored hits with composable filters; table/JSON/CSV output |
+| `ctsnare db stats` / `clear` / `export` / `path` | Database management (`clear` requires `--confirm`, supports `--session`) |
+| `ctsnare profiles` / `profiles show <name>` | List and inspect keyword profiles |
+| `ctsnare skip list` / `add` / `remove` / `reset` | Manage the infrastructure noise skip list |
+
+### Watching
+
+```bash
+ctsnare watch --profile crypto --session morning-run
+ctsnare watch --headless --poll-interval 10s --batch-size 1024
+ctsnare watch --backtrack 5000
+```
+
+`--backtrack` counts log **entries, not time** — busy CT logs ingest millions of entries per day, so backtrack catches *recent* issuance at startup, not deep history. For a domain's full certificate history use [crt.sh](https://crt.sh).
+
+### Domain-tracker mode
+
+Pass one or more `--domain` flags to store **every** newly issued certificate for an apex and all its subdomains — unconditionally, regardless of score or profile:
+
+```bash
+ctsnare watch --domain openai.com --domain anthropic.com --session brands
+```
+
+Matching is exact: `--domain openai.com` matches `openai.com` and `api.openai.com` but **not** `notopenai.com` or `openai.com.evil.com`. Use keyword profiles for lookalike detection; use `--domain` for domains you actually own or care about precisely. Tracked rows are tagged with profile `domain-track`; pair with `--session` for later filtering.
+
+### Querying
+
+```bash
+ctsnare query --severity HIGH
+ctsnare query --keyword login --tld .xyz --since 6h
+ctsnare query --live-only --min-score 5 --format json
+ctsnare query --domain openai.com --session openai
+ctsnare query --session midnight-run --format csv > midnight-run.csv
+```
+
+Filters compose with AND. `--since` accepts Go durations plus a day suffix (`12h`, `7d`).
+
+### TUI keys
+
+Feed: `Tab` switch view · `p` pause · `j/k` scroll · `q` quit.
+Explorer: `Enter` drill in · `f` filter · `s` sort · `b` bookmark · `Space/a/A` select · `d/D` delete · `C` clear DB · `r` reload · `Esc` back.
+
+---
+
+## Scoring
+
+Every domain extracted from a certificate is scored independently; the total maps to a severity.
+
+| Heuristic | Points | Condition |
+|-----------|--------|-----------|
+| Keyword match | +2 per keyword | Domain contains a profile keyword (case-insensitive substring) |
+| Suspicious TLD | +1 | TLD is in the profile's TLD list |
+| Domain length | +1 | Registered domain exceeds 30 characters |
+| Hyphen density | +1 | 2 or more hyphens |
+| Digit sequence | +1 | 4 or more consecutive digits |
+| Multi-keyword bonus | +2 | 3 or more keywords matched |
+
+Severity: **HIGH** ≥ 8 · **MED** 5–7 · **LOW** 1–4. By default hits scoring 4+ are stored; 1–3 appear in the live feed only; 0 is discarded. Tune with `--min-score`.
+
+**Profiles.** Built-ins: `crypto` (45 keywords — exchanges, wallets, casinos), `phishing` (41 keywords — brands, credential bait), and `all` (both combined). Inspect any profile with `ctsnare profiles show <name>`, or define your own in TOML (see Configuration).
+
+**Noise filtering.** Domains ending with known infrastructure suffixes (52 built-in globals — cloud providers, CDNs, PaaS, big tech) skip scoring entirely. Manage with `ctsnare skip list/add/remove/reset`; effective list = globals + your additions − your removals.
+
+**Enrichment.** Every stored hit gets DNS resolution, CIDR-based hosting provider detection, and an HTTP HEAD liveness probe in the background. Results show in the detail view and filter with `--live-only`.
+
+---
+
+## Configuration
+
+ctsnare runs with zero configuration. Optional TOML config at `~/.config/ctsnare/config.toml` (or `--config`); precedence is defaults < config file < CLI flags.
+
+```toml
+[[ct_logs]]
+url  = "https://ct.googleapis.com/logs/us1/argon2026h1"
+name = "Google Argon 2026h1"
+
+default_profile = "all"   # profile when --profile is not set
+batch_size      = 256     # entries fetched per poll per log
+poll_interval   = "5s"    # wait between polls per log
+backtrack       = 0       # start N entries behind the log tip
+# db_path = "/home/user/.local/share/ctsnare/ctsnare.db"  # default: XDG path
+
+[skip_overrides]          # managed via `ctsnare skip add/remove/reset`
+additions = ["sailpoint.com"]
+removals  = []
+
+# Custom profile — or extend a built-in with description = "extends:crypto"
+[custom_profiles.brand]
+name            = "brand"
+description     = "Brand protection monitoring for Acme Corp"
+keywords        = ["acme", "acmecorp", "acme-bank", "acmepay"]
+suspicious_tlds = [".xyz", ".top", ".vip", ".click"]
+```
+
+```bash
+ctsnare watch --profile brand
 ```
 
 ---
 
 ## Development
 
-### Prerequisites
-
-- Go 1.26 or later
-- [golangci-lint](https://golangci-lint.run/usage/install/) for linting
-
-```bash
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-```
-
-### Setup and build
+Requires Go 1.26+ and [golangci-lint](https://golangci-lint.run/usage/install/).
 
 ```bash
 git clone https://github.com/ul0gic/ctsnare.git
 cd ctsnare
-go build -o ctsnare ./cmd/ctsnare
+make check    # build + vet + lint + test (race detection)
 ```
 
-### Testing
-
-```bash
-# Run all tests with race detection
-go test -race -count=1 ./...
-
-# Run tests in a specific package
-go test ./internal/scoring/...
-```
-
-### Full verification
-
-```bash
-# Build + vet + lint + test
-make check
-```
-
-Individual targets:
-
-```bash
-make build     # compile binary
-make test      # run tests
-make lint      # golangci-lint
-make fmt       # gofmt
-make vet       # go vet
-make coverage  # coverage report
-make clean     # remove build artifacts
-```
+Other targets: `make build`, `make test`, `make lint`, `make fmt`, `make coverage`, `make clean`.
 
 ---
 
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-
