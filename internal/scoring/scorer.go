@@ -43,6 +43,14 @@ func (e *Engine) Score(domainName string, profile *domain.Profile) domain.Scored
 	matched = append(matched, brandMatched...)
 	matched = append(matched, genMatched...)
 
+	// Punycode / homograph: flag IDN labels, then re-match keywords against the
+	// confusable-folded Unicode form to catch look-alike impersonation that the
+	// literal ASCII scan above misses.
+	totalScore += scorePunycode(domainName)
+	confScore, confMatched := scoreConfusableKeywords(domainName, profile.BrandKeywords, profile.Keywords)
+	totalScore += confScore
+	matched = append(matched, confMatched...)
+
 	totalScore += scoreTLD(domainName, profile.SuspiciousTLDs)
 	totalScore += scoreDomainLength(domainName)
 	totalScore += scoreHyphenDensity(domainName)
