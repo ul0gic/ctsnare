@@ -85,6 +85,12 @@ type Store interface {
 	// QueryHitsByBaseDomain returns all hits whose base_domain matches the given value.
 	QueryHitsByBaseDomain(ctx context.Context, baseDomain string) ([]Hit, error)
 
+	// NetworkClusters returns infrastructure clusters: for each resolved IP that
+	// hosts two or more distinct domains, an aggregate of the domains sharing it.
+	// CDN-edge providers (where co-hosting carries no signal) are excluded.
+	// Clusters are sorted by domain count descending.
+	NetworkClusters(ctx context.Context) ([]NetworkCluster, error)
+
 	// Close releases the underlying database connection. Must be called when
 	// the store is no longer needed.
 	Close() error

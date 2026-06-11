@@ -93,6 +93,13 @@ type QueryFilter struct {
 	// domainutil.MatchesTrackTarget; a parity test enforces agreement between the
 	// Go matcher and the SQL predicate. Empty string means no domain filter.
 	Domain string
+
+	// SharedIP filters hits whose resolved_ips JSON array contains this exact IP
+	// address. Used to pivot from an infrastructure cluster to the domains hosted
+	// on a shared IP. The match is an exact element comparison via json_each, so a
+	// partial-IP value cannot spuriously match a longer address. Empty means no
+	// shared-IP filter.
+	SharedIP string
 }
 
 // DBStats contains aggregate statistics about stored hits.

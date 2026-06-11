@@ -256,6 +256,21 @@ func appendMatchPredicates(filter domain.QueryFilter, where []string, args []int
 		where = append(where, pred)
 		args = append(args, target, "%."+target)
 	}
+	where, args = appendSharedIPPredicate(filter, where, args)
+	return where, args
+}
+
+// appendSharedIPPredicate appends a json_each EXISTS predicate that matches rows
+// whose resolved_ips JSON array contains the exact IP. json_each expands the
+// array into one row per element; the predicate is true when any element equals
+// the bound value. Exact comparison (not LIKE) means a partial address cannot
+// match a longer one. The value is bound as a parameter, never interpolated.
+func appendSharedIPPredicate(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
+	if filter.SharedIP == "" {
+		return where, args
+	}
+	where = append(where, "EXISTS (SELECT 1 FROM json_each(hits.resolved_ips) WHERE json_each.value = ?)")
+	args = append(args, filter.SharedIP)
 	return where, args
 }
 
