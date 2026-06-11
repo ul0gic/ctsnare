@@ -27,7 +27,7 @@ go install github.com/ul0gic/ctsnare/cmd/ctsnare@latest
 ctsnare watch
 ```
 
-This opens the TUI dashboard, polls Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing + ai keywords), and stores hits scoring 4+ in `~/.local/share/ctsnare/ctsnare.db`. Press `Tab` to switch between Live Feed and DB Explorer, `p` to pause the feed, `?`-style hints are in each view, `q` to quit.
+This opens the TUI dashboard, polls Google Argon and Xenon 2026 CT logs against the `all` profile (crypto + phishing + ai keywords), and stores hits scoring 4+ in `~/.local/share/ctsnare/ctsnare.db`. Press `Tab` to cycle Live Feed → DB Explorer → Network (shared-IP clusters), `p` to pause the feed, `?`-style hints are in each view, `q` to quit.
 
 ```bash
 # Headless (server / cron) — polls and stores until SIGINT/SIGTERM
@@ -154,15 +154,18 @@ ctsnare query --signal burner-tld --signal numeric-sld --format csv
 ctsnare query --category hosted-abuse --since 24h
 ctsnare query --issuer "let's encrypt" --severity HIGH
 ctsnare query --brand paypal --format json | jq -r '.domain'
+ctsnare query --shared-ip 203.0.113.7 --format json | jq -r '.domain'
 ctsnare query --session midnight-run --format csv > midnight-run.csv
 ```
 
-Filters compose with AND. `--since` accepts Go durations plus a day suffix (`12h`, `7d`). `--signal` is repeatable (AND across keys); `--issuer` and `--provider` are case-insensitive substring matches; `--brand` matches a name in any keyword form (exact, `~typosquat`, `*homoglyph`).
+Filters compose with AND. `--since` accepts Go durations plus a day suffix (`12h`, `7d`). `--signal` is repeatable (AND across keys); `--issuer` and `--provider` are case-insensitive substring matches; `--brand` matches a name in any keyword form (exact, `~typosquat`, `*homoglyph`); `--shared-ip` pivots into an infrastructure cluster, returning every domain that resolves to the given address.
 
 ### TUI keys
 
+`Tab` cycles the three primary views: Feed → Explorer → Network.
 Feed: `Tab` switch view · `p` pause · `j/k` scroll · `q` quit.
-Explorer: `Enter` drill in · `f` filter · `s` sort · `b` bookmark · `Space/a/A` select · `d/D` delete · `C` clear DB · `r` reload · `Esc` back.
+Explorer: `Enter` drill in · `f` filter · `s` sort · `b` bookmark · `Space/a/A` select · `d/D` delete · `C` clear DB · `r` reload · `Esc` back. A resolved-IP column appears at wider widths.
+Network: lists shared-IP infrastructure clusters (≥2 co-hosted domains, CDN edges excluded). `Enter` drills into the explorer filtered to that IP's domains · `r` reload.
 
 ---
 
