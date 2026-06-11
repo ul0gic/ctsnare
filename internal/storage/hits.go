@@ -489,6 +489,7 @@ func sanitizeSortColumn(col string) string {
 		"http_status":     "http_status",
 		"live_checked_at": "live_checked_at",
 		"base_domain":     "base_domain",
+		"resolved_ips":    "resolved_ips",
 	}
 	if safe, ok := allowed[strings.ToLower(col)]; ok {
 		return safe

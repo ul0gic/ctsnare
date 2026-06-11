@@ -37,18 +37,23 @@ func TestAppViewSwitchingTab(t *testing.T) {
 		t.Fatalf("expected feed view, got %d", app.activeView)
 	}
 
-	// Press Tab to switch to explorer
+	// Tab cycles feed -> explorer -> network -> feed.
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
 	app = asAppModel(t, model)
 	if app.activeView != viewExplorer {
 		t.Errorf("expected explorer view after tab, got %d", app.activeView)
 	}
 
-	// Press Tab again to switch back to feed
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	app = asAppModel(t, model)
+	if app.activeView != viewNetwork {
+		t.Errorf("expected network view after second tab, got %d", app.activeView)
+	}
+
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyTab})
 	app = asAppModel(t, model)
 	if app.activeView != viewFeed {
-		t.Errorf("expected feed view after second tab, got %d", app.activeView)
+		t.Errorf("expected feed view after third tab, got %d", app.activeView)
 	}
 }
 

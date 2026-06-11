@@ -80,6 +80,10 @@ func (m *mockStore) QueryHitsByBaseDomain(_ context.Context, _ string) ([]domain
 	return nil, nil
 }
 
+func (m *mockStore) NetworkClusters(_ context.Context) ([]domain.NetworkCluster, error) {
+	return nil, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // newMockCTLogServer creates a test HTTP server that responds to CT log API endpoints.

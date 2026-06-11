@@ -85,3 +85,14 @@ type ShowSubdomainsMsg struct {
 	BaseDomain string
 	FromDomain string
 }
+
+// ClustersLoadedMsg delivers the network clusters loaded from the database.
+type ClustersLoadedMsg struct {
+	Clusters []domain.NetworkCluster
+}
+
+// ShowClusterMsg requests switching the explorer to show exactly the domains
+// resolving to a shared IP, drilling in from a network cluster.
+type ShowClusterMsg struct {
+	IP string
+}

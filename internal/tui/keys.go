@@ -24,6 +24,7 @@ type KeyMap struct {
 	DeselectAll   key.Binding
 	ConfirmDelete key.Binding
 	Pause         key.Binding
+	NetworkDrill  key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings for the application.
@@ -35,7 +36,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch view"),
+			key.WithHelp("tab", "cycle views: feed → explorer → network"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
@@ -109,6 +110,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("p"),
 			key.WithHelp("p", "pause/resume"),
 		),
+		NetworkDrill: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "network: list a cluster's domains"),
+		),
 	}
 }
 
@@ -124,5 +129,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Tab, k.Search, k.Sort, k.Filter},
 		{k.Enter, k.Escape, k.Clear, k.Quit},
 		{k.Bookmark, k.Delete, k.SelectToggle, k.SelectAll, k.DeselectAll, k.ConfirmDelete},
+		{k.NetworkDrill},
 	}
 }

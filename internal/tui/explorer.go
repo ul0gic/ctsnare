@@ -13,13 +13,21 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
+// ipColumnMinWidth is the terminal width at or above which the explorer shows
+// the resolved-IP column. Below it the IP is dropped so the core columns
+// (domain, keywords, issuer) stay readable — mirroring the responsive
+// disclosure the feed uses for its keyword sidebar.
+const ipColumnMinWidth = 110
+
 var explorerColumns = []string{
-	"Severity", "Score", "Domain", "Keywords", "Issuer", "Session", "Timestamp",
+	"Severity", "Score", "Domain", "Keywords", "IP", "Issuer", "Session", "Timestamp",
 }
 
-// sortColumns maps column index to the database sort field name.
+// sortColumns maps a sort-cycle index to the database sort field name. The IP
+// column sorts on the resolved_ips JSON text, which clusters domains sharing a
+// leading address together — a useful grouping even though it is not numeric.
 var sortColumns = []string{
-	"severity", "score", "domain", "keywords", "issuer", "session", "created_at",
+	"severity", "score", "domain", "keywords", "resolved_ips", "issuer", "session", "created_at",
 }
 
 // deleteStatusMsg provides feedback after a delete operation.
@@ -55,24 +63,14 @@ type ExplorerModel struct {
 	// re-observed and re-stored later, it reappears on the next load.
 	deletedSet map[string]bool
 	statusText string // brief status message shown in filter bar
+	showIP     bool   // include the resolved-IP column (set by width on resize)
 }
 
 // NewExplorerModel creates a new DB explorer view.
 // The store parameter may be nil during Phase 2; it will be wired in Phase 3.
 func NewExplorerModel(store domain.Store) ExplorerModel {
-	cols := []table.Column{
-		{Title: " ", Width: 4},
-		{Title: "Severity", Width: 8},
-		{Title: "Score", Width: 6},
-		{Title: "Domain", Width: 38},
-		{Title: "Keywords", Width: 23},
-		{Title: "Issuer", Width: 18},
-		{Title: "Session", Width: 12},
-		{Title: "Timestamp", Width: 19},
-	}
-
 	t := table.New(
-		table.WithColumns(cols),
+		table.WithColumns(explorerTableColumns(false)),
 		table.WithFocused(true),
 		table.WithHeight(10),
 	)
@@ -151,6 +149,16 @@ func (m ExplorerModel) resize(msg tea.WindowSizeMsg) ExplorerModel {
 	if tableHeight < 3 {
 		tableHeight = 3
 	}
+
+	// Reveal the IP column only at wider widths; rebuild columns and rows when
+	// the visibility flips so the header and every row carry the same cell count.
+	showIP := m.width >= ipColumnMinWidth
+	if showIP != m.showIP {
+		m.showIP = showIP
+		m.table.SetColumns(explorerTableColumns(showIP))
+		m.table.SetRows(m.hitsToRows())
+	}
+
 	// Table width fits inside the panel borders (2 chars for left+right).
 	m.table.SetWidth(m.width - 2)
 	m.table.SetHeight(tableHeight)
@@ -590,6 +598,36 @@ func (m ExplorerModel) renderHelpBar() string {
 	return " " + help
 }
 
+// explorerTableColumns returns the table column set, optionally including the
+// resolved-IP column. The IP column slots between Keywords and Issuer so the
+// header order matches explorerColumns and the cell order in hitToRow.
+func explorerTableColumns(showIP bool) []table.Column {
+	cols := []table.Column{
+		{Title: " ", Width: 4},
+		{Title: "Severity", Width: 8},
+		{Title: "Score", Width: 6},
+		{Title: "Domain", Width: 38},
+		{Title: "Keywords", Width: 23},
+	}
+	if showIP {
+		cols = append(cols, table.Column{Title: "IP", Width: 17})
+	}
+	cols = append(cols,
+		table.Column{Title: "Issuer", Width: 18},
+		table.Column{Title: "Session", Width: 12},
+		table.Column{Title: "Timestamp", Width: 19},
+	)
+	return cols
+}
+
+// primaryIP returns the first resolved IP for a hit, or "—" when none is known.
+func primaryIP(hit domain.Hit) string {
+	if len(hit.ResolvedIPs) == 0 {
+		return "—"
+	}
+	return hit.ResolvedIPs[0]
+}
+
 func (m ExplorerModel) hitsToRows() []table.Row {
 	rows := make([]table.Row, 0, len(m.hits))
 	for i, hit := range m.hits {
@@ -623,7 +661,11 @@ func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
 		domText = StyleLiveDomain.Render(dom)
 	}
 
-	return table.Row{checkbox, sevText, scoreText, domText, kw, issuer, hit.Session, ts}
+	row := table.Row{checkbox, sevText, scoreText, domText, kw}
+	if m.showIP {
+		row = append(row, truncate(primaryIP(hit), 17))
+	}
+	return append(row, issuer, hit.Session, ts)
 }
 
 // truncate shortens s to at most maxLen runes, appending an ellipsis when cut.

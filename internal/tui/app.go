@@ -16,9 +16,10 @@ import (
 const (
 	viewFeed     = 0
 	viewExplorer = 1
-	viewDetail   = 2
-	viewFilter   = 3
-	viewHelp     = 4
+	viewNetwork  = 2
+	viewDetail   = 3
+	viewFilter   = 4
+	viewHelp     = 5
 )
 
 // AppModel is the root Bubble Tea model that manages view switching and message routing.
@@ -27,6 +28,7 @@ type AppModel struct {
 	prevView    int // view to restore when the help overlay is dismissed
 	feed        FeedModel
 	explorer    ExplorerModel
+	network     NetworkModel
 	detail      *DetailModel
 	filter      *FilterModel
 	keys        KeyMap
@@ -54,6 +56,7 @@ func NewApp(
 		activeView:  viewFeed,
 		feed:        NewFeedModel(profile),
 		explorer:    NewExplorerModel(store),
+		network:     NewNetworkModel(store),
 		keys:        DefaultKeyMap(),
 		store:       store,
 		hitChan:     hitChan,
@@ -67,6 +70,7 @@ func NewApp(
 func (m AppModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.explorer.Init(),
+		m.network.Init(),
 	}
 	if m.hitChan != nil {
 		cmds = append(cmds, waitForHit(m.hitChan))
@@ -97,11 +101,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case HitMsg, EnrichmentMsg, DiscardedDomainMsg, discardTickMsg, StatsMsg:
 		return m.handleStreamMsg(msg)
 
-	case HitsLoadedMsg, DeleteHitsMsg, deleteStatusMsg, BookmarkToggleMsg:
-		// Explorer-owned messages: forward to the explorer regardless of view.
-		var cmd tea.Cmd
-		m.explorer, cmd = m.explorer.Update(msg)
-		return m, cmd
+	case HitsLoadedMsg, DeleteHitsMsg, deleteStatusMsg, BookmarkToggleMsg, ClustersLoadedMsg:
+		return m.handleDataMsg(msg)
 
 	case ShowDetailMsg:
 		return m.showDetail(msg)
@@ -112,11 +113,25 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case ShowSubdomainsMsg, SwitchViewMsg, FilterAppliedMsg, FilterCancelledMsg:
+	case ShowSubdomainsMsg, ShowClusterMsg, SwitchViewMsg, FilterAppliedMsg, FilterCancelledMsg:
 		return m.handleNavMsg(msg)
 	}
 
 	return m.delegateToView(msg)
+}
+
+// handleDataMsg forwards a store-load/mutation result to the view that owns it,
+// regardless of which view is active, so the explorer and network tables stay
+// current even when their data lands while another view is showing. The network
+// view owns ClustersLoadedMsg; the explorer owns the rest.
+func (m AppModel) handleDataMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if _, ok := msg.(ClustersLoadedMsg); ok {
+		m.network, cmd = m.network.Update(msg)
+		return m, cmd
+	}
+	m.explorer, cmd = m.explorer.Update(msg)
+	return m, cmd
 }
 
 // handleStreamMsg processes the async streaming messages that feed the live
@@ -151,6 +166,14 @@ func (m AppModel) handleNavMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.explorer.SetFilter(domain.QueryFilter{
 			BaseDomain: msg.BaseDomain,
 			Limit:      500,
+		})
+
+	case ShowClusterMsg:
+		m.activeView = viewExplorer
+		m.detail = nil
+		return m, m.explorer.SetFilter(domain.QueryFilter{
+			SharedIP: msg.IP,
+			Limit:    500,
 		})
 
 	case SwitchViewMsg:
@@ -197,6 +220,8 @@ func (m AppModel) delegateToView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feed, cmd = m.feed.Update(msg)
 	case viewExplorer:
 		m.explorer, cmd = m.explorer.Update(msg)
+	case viewNetwork:
+		m.network, cmd = m.network.Update(msg)
 	case viewDetail:
 		if m.detail != nil {
 			*m.detail, cmd = m.detail.Update(msg)
@@ -224,6 +249,7 @@ func (m AppModel) resizeAll(msg tea.WindowSizeMsg) AppModel {
 	m.height = msg.Height
 	m.feed, _ = m.feed.Update(msg)
 	m.explorer, _ = m.explorer.Update(msg)
+	m.network, _ = m.network.Update(msg)
 	if m.detail != nil {
 		*m.detail, _ = m.detail.Update(msg)
 	}
@@ -319,10 +345,12 @@ func (m AppModel) openFilterOverlay() AppModel {
 	return m
 }
 
-// handleTab switches between the feed and explorer views, reloading the explorer
-// from the DB when entering it.
+// handleTab cycles through the primary views: feed -> explorer -> network ->
+// feed. Each data view reloads from the DB on entry so it reflects the latest
+// committed state.
 func (m AppModel) handleTab() (handled bool, model tea.Model, cmd tea.Cmd) {
-	if m.activeView == viewFeed {
+	switch m.activeView {
+	case viewFeed:
 		m.activeView = viewExplorer
 		// Auto-reload explorer from DB when switching to it. The fresh load
 		// reflects committed deletions, so drop the per-cycle deleted-domain
@@ -330,9 +358,15 @@ func (m AppModel) handleTab() (handled bool, model tea.Model, cmd tea.Cmd) {
 		m.explorer.loading = true
 		m.explorer.deletedSet = make(map[string]bool)
 		return true, m, m.explorer.loadHitsCmd()
+	case viewExplorer:
+		m.activeView = viewNetwork
+		var c tea.Cmd
+		m.network, c = m.network.reload()
+		return true, m, c
+	default:
+		m.activeView = viewFeed
+		return true, m, nil
 	}
-	m.activeView = viewFeed
-	return true, m, nil
 }
 
 // applyEnrichment propagates enrichment data for a domain into the feed,
@@ -375,6 +409,9 @@ func (m AppModel) View() string {
 	}
 	if m.activeView == viewExplorer {
 		return m.explorer.View()
+	}
+	if m.activeView == viewNetwork {
+		return m.network.View()
 	}
 	return m.feed.View()
 }
@@ -429,6 +466,7 @@ func renderTabBar(activeView, width int, extra string) string {
 	}{
 		{"Feed", viewFeed},
 		{"Explorer", viewExplorer},
+		{"Network", viewNetwork},
 	}
 	if activeView == viewDetail {
 		tabs = append(tabs, struct {

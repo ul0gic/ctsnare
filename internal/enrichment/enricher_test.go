@@ -68,6 +68,11 @@ func (m *mockStore) CountByBaseDomain(context.Context, string) (int, error) {
 func (m *mockStore) QueryHitsByBaseDomain(context.Context, string) ([]domain.Hit, error) {
 	return nil, nil
 }
+
+func (m *mockStore) NetworkClusters(context.Context) ([]domain.NetworkCluster, error) {
+	return nil, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 func TestEnricher_LiveDomain(t *testing.T) {
