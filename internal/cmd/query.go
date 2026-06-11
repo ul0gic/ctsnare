@@ -32,6 +32,7 @@ var (
 	queryIssuer     string
 	queryProvider   string
 	queryBrand      string
+	querySharedIP   string
 )
 
 var queryCmd = &cobra.Command{
@@ -52,7 +53,8 @@ Examples:
   ctsnare query --category hosted-abuse --since 24h
   ctsnare query --issuer "let's encrypt" --severity HIGH
   ctsnare query --provider cloudflare --live-only
-  ctsnare query --brand paypal --format json | jq -r '.domain'`,
+  ctsnare query --brand paypal --format json | jq -r '.domain'
+  ctsnare query --shared-ip 203.0.113.7 --format json | jq -r '.domain'`,
 	RunE: runQuery,
 }
 
@@ -73,6 +75,7 @@ func init() {
 	queryCmd.Flags().StringVar(&queryIssuer, "issuer", "", "filter by issuer substring, case-insensitive (matches issuer org or CN)")
 	queryCmd.Flags().StringVar(&queryProvider, "provider", "", "filter by hosting provider substring, case-insensitive")
 	queryCmd.Flags().StringVar(&queryBrand, "brand", "", "filter by brand name in any match form: exact, ~typosquat, or *homoglyph")
+	queryCmd.Flags().StringVar(&querySharedIP, "shared-ip", "", "filter to domains whose resolved IPs include this exact address (pivots into an infrastructure cluster)")
 
 	rootCmd.AddCommand(queryCmd)
 }
@@ -115,6 +118,7 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		Issuer:   queryIssuer,
 		Provider: queryProvider,
 		Brand:    queryBrand,
+		SharedIP: querySharedIP,
 		Limit:    queryLimit,
 		SortBy:   "score",
 		SortDir:  "DESC",
