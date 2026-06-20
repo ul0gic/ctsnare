@@ -12,8 +12,7 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// ExportJSONL writes one JSON line per hit to the writer, using the given
-// filter to select records. The filter's Limit is set to 0 (no limit).
+// ExportJSONL writes one JSON line per filtered hit; the filter's limit is ignored.
 func (d *DB) ExportJSONL(ctx context.Context, w io.Writer, filter domain.QueryFilter) error {
 	filter.Limit = 0
 	filter.Offset = 0
@@ -34,8 +33,7 @@ func (d *DB) ExportJSONL(ctx context.Context, w io.Writer, filter domain.QueryFi
 	return nil
 }
 
-// ExportCSV writes hits as CSV with a header row, using the given filter
-// to select records. The filter's Limit is set to 0 (no limit).
+// ExportCSV writes filtered hits as CSV with a header row; the filter's limit is ignored.
 func (d *DB) ExportCSV(ctx context.Context, w io.Writer, filter domain.QueryFilter) error {
 	filter.Limit = 0
 	filter.Offset = 0

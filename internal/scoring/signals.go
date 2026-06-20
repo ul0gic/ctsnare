@@ -1,10 +1,7 @@
 package scoring
 
-// Signal keys are the stable, machine-readable identifiers for each scoring
-// heuristic. They are persisted on every hit (the `signals` column) and exposed
-// to the user via `query --signal <key>`, so they form a public contract:
-// renaming one is a breaking change for stored data and saved queries. Add new
-// keys here rather than coining ad-hoc strings at the call site.
+// Signal keys are persisted (the `signals` column) and queryable, so they are a
+// public contract: renaming one breaks stored data and saved queries.
 const (
 	// SignalBrandKeyword fires when a brand-tier keyword matched literally.
 	SignalBrandKeyword = "brand-keyword"
@@ -45,9 +42,7 @@ const (
 	SignalMultiKeyword = "multi-keyword"
 )
 
-// Category values classify a hit by the profile bucket that produced its
-// strongest match. They are persisted on the hit and filterable via
-// `query --category`.
+// Category values name the profile bucket of a hit's strongest match; persisted and filterable.
 const (
 	CategoryCrypto      = "crypto"
 	CategoryPhishing    = "phishing"

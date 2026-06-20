@@ -112,12 +112,10 @@ func NewFilterModel() FilterModel {
 	}
 }
 
-// Init returns the initial command for the filter model.
 func (m FilterModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update handles messages for the filter model.
 func (m FilterModel) Update(msg tea.Msg) (FilterModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -186,9 +184,8 @@ func (m FilterModel) applyFilter() (handled bool, model FilterModel, cmd tea.Cmd
 	return true, m, func() tea.Msg { return FilterAppliedMsg{Filter: f} }
 }
 
-// handleOptionCycle advances the option-style field under focus (severity,
-// time range, bookmarked, live-only) in response to left/right/h/l. It returns
-// true when the key cycled an option, false otherwise.
+// handleOptionCycle advances the focused option field (severity, time range,
+// bookmarked, live-only) on left/right/h/l, returning true when it cycled one.
 func (m *FilterModel) handleOptionCycle(key string) bool {
 	var delta int
 	switch key {
@@ -224,7 +221,6 @@ func wrapIndex(idx, delta, n int) int {
 	return (idx + delta + n) % n
 }
 
-// View renders the filter overlay as a string.
 func (m FilterModel) View() string {
 	title := StyleTitle.Render("Filter Hits")
 
@@ -258,9 +254,8 @@ func (m FilterModel) View() string {
 	)
 }
 
-// buildFilter translates the overlay inputs into a QueryFilter. It returns an
-// error describing the first invalid field so the overlay can surface it
-// instead of silently producing a filter that matches nothing.
+// buildFilter translates the overlay inputs into a QueryFilter, returning an
+// error for the first invalid field rather than a filter that matches nothing.
 func (m FilterModel) buildFilter() (domain.QueryFilter, error) {
 	var f domain.QueryFilter
 

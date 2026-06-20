@@ -24,9 +24,8 @@ type DetailModel struct {
 	countLoaded    bool // true after the async count has been received
 }
 
-// NewDetailModel creates a new detail view for a specific hit.
-// The store is used to query related subdomain counts; it may be nil if
-// no store is available (the related subdomains section is simply hidden).
+// NewDetailModel creates a detail view for a hit. A nil store hides the
+// related-subdomains section.
 func NewDetailModel(hit domain.Hit, store domain.Store) DetailModel {
 	return DetailModel{
 		hit:   hit,
@@ -34,13 +33,10 @@ func NewDetailModel(hit domain.Hit, store domain.Store) DetailModel {
 	}
 }
 
-// Init returns the initial command for the detail model.
-// It kicks off an async query to count related subdomains.
 func (m DetailModel) Init() tea.Cmd {
 	return m.loadSubdomainCountCmd()
 }
 
-// Update handles messages for the detail model.
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -96,15 +92,13 @@ func (m DetailModel) resize(msg tea.WindowSizeMsg) DetailModel {
 	return m
 }
 
-// handleKey processes detail-view key bindings: back (esc/q) and drill-down
-// into the subdomain list (enter). It returns handled=false when the key
-// should fall through to the scrolling viewport.
+// handleKey processes detail-view bindings (esc/q back, enter drills into
+// subdomains), returning handled=false to fall through to the scrolling viewport.
 func (m DetailModel) handleKey(msg tea.KeyMsg) (handled bool, model DetailModel, cmd tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
 		return true, m, func() tea.Msg { return SwitchViewMsg{View: viewExplorer} }
 	case "enter":
-		// Drill down to the subdomain list if count > 1.
 		if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
 			baseDomain := m.hit.BaseDomain
 			fromDomain := m.hit.Domain
@@ -116,22 +110,15 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (handled bool, model DetailModel,
 	return false, m, nil
 }
 
-// View renders the detail model as a string.
 func (m DetailModel) View() string {
 	if !m.ready {
 		return "Initializing detail view..."
 	}
 
-	// Tab bar.
 	tabBar := renderTabBar(viewDetail, m.width, "")
-
-	// Build the panel title with domain, severity, and score.
 	panelTitle := m.buildPanelTitle()
-
-	// Viewport content inside a titled panel.
 	contentPanel := renderTitledPanel(panelTitle, m.viewport.View(), m.width)
 
-	// Help bar.
 	sep := StyleHelpDesc.Render("  ")
 	helpBar := " " + StyleHelpKey.Render("Esc") + StyleHelpDesc.Render("=back") + sep +
 		StyleHelpKey.Render("j/k") + StyleHelpDesc.Render("=scroll")
@@ -147,18 +134,15 @@ func (m DetailModel) View() string {
 func (m DetailModel) buildPanelTitle() string {
 	var parts []string
 
-	// Bookmark indicator.
 	if m.hit.Bookmarked {
 		parts = append(parts, StyleBookmarked.Render("*"))
 	}
 
-	// Domain name colored by severity.
 	sevStyle := SeverityStyle(string(m.hit.Severity))
 	parts = append(parts, sevStyle.Render(m.hit.Domain))
 
 	title := strings.Join(parts, " ")
 
-	// Severity and score in the title.
 	sevTag := sevStyle.Render(string(m.hit.Severity))
 	scoreTag := sevStyle.Render(fmt.Sprintf("Score: %d", m.hit.Score))
 
@@ -179,9 +163,8 @@ func (m DetailModel) renderContent() string {
 	if contentWidth < 20 {
 		contentWidth = 20
 	}
-	sepWidth := contentWidth - 2 // a bit of padding
+	sepWidth := contentWidth - 2
 
-	// Certificate section.
 	b.WriteString("\n")
 	b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Certificate") + "\n")
 	b.WriteString("  " + renderDottedSep(sepWidth) + "\n")
@@ -191,16 +174,10 @@ func (m DetailModel) renderContent() string {
 		b.WriteString(renderField("Cert Not Before", m.hit.CertNotBefore.Format("2006-01-02 15:04:05 UTC")))
 	}
 
-	// Scoring section.
 	m.renderScoring(&b, sepWidth)
-
-	// SANs section.
 	m.renderSANs(&b, sepWidth)
-
-	// Enrichment data section -- only shown if enrichment has run.
 	m.renderEnrichment(&b, sepWidth)
 
-	// Related Subdomains section -- only shown when count > 1.
 	if m.countLoaded && m.subdomainCount > 1 && m.hit.BaseDomain != "" {
 		b.WriteString("\n")
 		b.WriteString("  " + lipgloss.NewStyle().Bold(true).Render("Related Subdomains") + "\n")
@@ -210,7 +187,6 @@ func (m DetailModel) renderContent() string {
 		b.WriteString(renderField("Subdomains", countStr))
 	}
 
-	// Timestamps at the bottom.
 	b.WriteString("\n")
 	if !m.hit.CreatedAt.IsZero() {
 		b.WriteString(renderField("First Seen", m.hit.CreatedAt.Format("2006-01-02 15:04:05")))

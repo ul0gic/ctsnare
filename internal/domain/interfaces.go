@@ -2,108 +2,67 @@ package domain
 
 import "context"
 
-// CertMeta carries the minimal certificate metadata used by certificate-level
-// scoring heuristics. It is populated by the poller from the parsed x509
-// certificate. The zero value is valid and disables the cert-based heuristics.
+// CertMeta carries certificate metadata for cert-level heuristics.
+// The zero value is valid and disables the cert-based heuristics.
 type CertMeta struct {
-	// SANCount is the number of Subject Alternative Name DNS entries on the cert.
-	// A very large SAN set is a weak signal of bulk/disposable certificate use.
 	SANCount int
 
-	// ValidityDays is the certificate validity period (NotAfter - NotBefore)
-	// rounded to whole days. Short-lived certs on brand-bait domains are a signal
-	// of free-CA abuse. Zero means unknown (heuristic skipped).
+	// Zero means unknown (heuristic skipped).
 	ValidityDays int
 
-	// Issuer is the certificate issuer CN and organization joined for substring
-	// matching against the known free-CA list. Empty disables the free-CA
-	// heuristic. The poller populates it from Issuer.CommonName and the first
-	// Issuer.Organization entry.
+	// Issuer CN and organization joined for free-CA substring matching; empty disables it.
 	Issuer string
 }
 
 // Scorer scores a domain against a profile's keyword heuristics.
-// Implementations apply all configured heuristics and return a ScoredDomain
-// with the total score, severity classification, and matched keywords.
-// A score of zero means no keywords matched and the domain should be discarded.
+// Score == 0 means no match and the domain should be discarded.
 type Scorer interface {
-	// Score runs all scoring heuristics against domainName using the given profile.
-	// Returns a ScoredDomain with Score == 0 when the domain matches a skip suffix
-	// or has no keyword matches.
 	Score(domain string, profile *Profile) ScoredDomain
 
-	// ScoreWithCert runs all of Score's heuristics plus certificate-level
-	// heuristics using the supplied CertMeta. Passing a zero CertMeta yields the
-	// same result as Score, so callers without certificate context can use Score.
+	// A zero CertMeta yields the same result as Score.
 	ScoreWithCert(domain string, profile *Profile, cert CertMeta) ScoredDomain
 }
 
-// Store provides persistence operations for hits.
-// All methods accept a context for cancellation and timeout propagation.
-// Implementations must be safe for concurrent use.
+// Store persists hits. Implementations must be safe for concurrent use.
 type Store interface {
-	// InsertHit inserts a new hit record. Returns an error if a record with
-	// the same domain already exists. Prefer UpsertHit for deduplication.
+	// Errors if the domain already exists; prefer UpsertHit for deduplication.
 	InsertHit(ctx context.Context, hit Hit) error
 
-	// QueryHits returns hits matching the given filter criteria. All filter
-	// fields are optional — an empty QueryFilter returns all hits.
+	// An empty QueryFilter returns all hits.
 	QueryHits(ctx context.Context, filter QueryFilter) ([]Hit, error)
 
-	// UpsertHit inserts or updates a hit keyed on domain. If a record for the
-	// domain already exists, it is updated with the new score, keywords, and
-	// certificate metadata. This is the primary write path.
+	// Inserts or updates keyed on domain; the primary write path.
 	UpsertHit(ctx context.Context, hit Hit) error
 
-	// Stats returns aggregate statistics about all stored hits including
-	// total count, breakdown by severity, top keywords, and date range.
 	Stats(ctx context.Context) (DBStats, error)
 
-	// ClearAll removes all hit records from the database.
 	ClearAll(ctx context.Context) error
 
-	// ClearSession removes all hit records tagged with the given session name.
 	ClearSession(ctx context.Context, session string) error
 
-	// SetBookmark sets or clears the bookmark flag on a hit identified by domain.
 	SetBookmark(ctx context.Context, domain string, bookmarked bool) error
 
-	// DeleteHit removes a single hit identified by domain.
 	DeleteHit(ctx context.Context, domain string) error
 
-	// DeleteHits removes multiple hits identified by their domains.
-	// Uses a transaction for atomicity.
 	DeleteHits(ctx context.Context, domains []string) error
 
-	// UpdateEnrichment updates the enrichment fields on a hit identified by domain.
-	// Serializes resolvedIPs as a JSON array in storage.
 	UpdateEnrichment(ctx context.Context, domain string, isLive bool, resolvedIPs []string, hostingProvider string, httpStatus int) error
 
-	// CountByBaseDomain returns the number of hits sharing the given base domain.
 	CountByBaseDomain(ctx context.Context, baseDomain string) (int, error)
 
-	// QueryHitsByBaseDomain returns all hits whose base_domain matches the given value.
 	QueryHitsByBaseDomain(ctx context.Context, baseDomain string) ([]Hit, error)
 
-	// NetworkClusters returns infrastructure clusters: for each resolved IP that
-	// hosts two or more distinct domains, an aggregate of the domains sharing it.
-	// CDN-edge providers (where co-hosting carries no signal) are excluded.
-	// Clusters are sorted by domain count descending.
+	// Aggregates each IP hosting two or more domains; CDN-edge providers are excluded.
 	NetworkClusters(ctx context.Context) ([]NetworkCluster, error)
 
-	// Close releases the underlying database connection. Must be called when
-	// the store is no longer needed.
 	Close() error
 }
 
-// ProfileLoader loads and lists keyword profiles.
-// Implementations provide access to both built-in and user-defined profiles.
+// ProfileLoader loads built-in and user-defined keyword profiles.
 type ProfileLoader interface {
-	// LoadProfile returns the named profile or an error if it does not exist.
-	// Built-in profile names are "crypto", "phishing", "ai", and "all".
+	// Built-in names are "crypto", "phishing", "ai", and "all".
 	LoadProfile(name string) (*Profile, error)
 
-	// ListProfiles returns all available profile names in sorted order,
-	// including both built-in and any custom profiles from config.
+	// Sorted, including built-in and custom profiles from config.
 	ListProfiles() []string
 }

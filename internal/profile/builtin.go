@@ -2,14 +2,8 @@ package profile
 
 import "github.com/ul0gic/ctsnare/internal/domain"
 
-// GlobalSkipSuffixes are infrastructure domain suffixes that universally
-// generate noise and should be skipped during scoring regardless of profile.
-// These are cloud providers, CDNs, PaaS platforms, and big tech infrastructure
-// that will never be phishing targets worth scoring.
-//
-// This list is the "hardcoded base layer" of the skip suffix system.
-// Users can add to or remove from this list via the [skip_overrides] section
-// in their TOML config, managed by `ctsnare skip add/remove`.
+// GlobalSkipSuffixes are infrastructure suffixes skipped during scoring on every
+// profile; config-overridable via [skip_overrides] (ctsnare skip add/remove).
 var GlobalSkipSuffixes = []string{
 	// Cloud providers
 	"cloudflaressl.com",
@@ -32,11 +26,8 @@ var GlobalSkipSuffixes = []string{
 	"edgekey.net",
 	"cloudfront.net",
 	"trafficmanager.net",
-	// PaaS / hosting
-	// NOTE: free-tenant PaaS suffixes (pages.dev, workers.dev, netlify.app,
-	// vercel.app, firebaseapp.com, github.io) are deliberately NOT skipped here.
-	// They are governed by WatchPlatformSuffixes instead, so brand-on-platform
-	// phishing (paypal-login.pages.dev) is still caught via tenant-only scoring.
+	// Free-tenant PaaS (pages.dev, github.io, ...) live in WatchPlatformSuffixes,
+	// not here, so brand-on-platform phishing is still caught by tenant scoring.
 	"herokuapp.com",
 	"herokuspace.com",
 	"appspot.com",
@@ -72,18 +63,8 @@ var GlobalSkipSuffixes = []string{
 	"google.co",
 }
 
-// WatchPlatformSuffixes are free-hosting / PaaS suffixes that are NOT skipped
-// outright. Instead, only the tenant labels (the part left of the suffix) are
-// scored: a brand/typosquat/homoglyph hit on the tenant marks the domain as
-// hosted abuse and stores it, while anything else is discarded silently.
-//
-// Rationale: legitimate brands never host on free PaaS, so paypal-login.pages.dev
-// is near-certain phishing — but pages.dev is also home to millions of benign
-// tenants, so a blanket skip blinds us to real abuse and a blanket score floods
-// the feed. Tenant-only scoring threads that needle. These suffixes are removed
-// from the plain skip list so the watch path, not the skip path, governs them.
-//
-// Like the skip list this is config-overridable; see config.WatchPlatforms.
+// WatchPlatformSuffixes are free PaaS suffixes scored on the tenant label only:
+// a brand hit there flags hosted abuse, everything else is dropped. Config-overridable.
 var WatchPlatformSuffixes = []string{
 	"pages.dev",
 	"workers.dev",
@@ -99,13 +80,8 @@ var WatchPlatformSuffixes = []string{
 	"wixsite.com",
 }
 
-// DefaultUserAdditions are enterprise/SaaS domain suffixes that match
-// keywords but are legitimate infrastructure. They are separated from
-// GlobalSkipSuffixes so users who specifically monitor enterprise
-// infrastructure can easily remove them via `ctsnare skip remove`.
-//
-// These become the default entries in the [skip_overrides] additions
-// array when a fresh config file is generated.
+// DefaultUserAdditions are legitimate enterprise/SaaS suffixes seeded into a
+// fresh config's [skip_overrides]; kept separate so users can remove them easily.
 var DefaultUserAdditions = []string{
 	"jpmchase.net",
 	"sailpoint.com",
@@ -114,11 +90,8 @@ var DefaultUserAdditions = []string{
 	"therapymatch.info",
 }
 
-// CryptoProfile targets cryptocurrency scams, underground casinos, and financial fraud.
-//
-// BrandKeywords (+3) are exact wallet/exchange/chain brand names — a hit here is
-// near-certain impersonation. Keywords (+1) are broad crypto/DeFi/gambling terms
-// that are common in legitimate fintech and gain signal only in combination.
+// CryptoProfile targets crypto scams, underground casinos, and financial fraud.
+// BrandKeywords (+3) are exact impersonation targets; Keywords (+1) gain signal only in combination.
 var CryptoProfile = domain.Profile{
 	Name: "crypto",
 	BrandKeywords: []string{
@@ -153,10 +126,7 @@ var CryptoProfile = domain.Profile{
 }
 
 // PhishingProfile targets credential phishing and brand impersonation domains.
-//
-// BrandKeywords (+3) are exact brand and bank names. Keywords (+1) are action
-// words (login, verify) that occur on countless legitimate sites and are only
-// meaningful alongside a brand hit, a suspicious TLD, or other heuristics.
+// BrandKeywords (+3) are exact brands; Keywords (+1) are action words meaningful only alongside another signal.
 var PhishingProfile = domain.Profile{
 	Name: "phishing",
 	BrandKeywords: []string{
@@ -185,11 +155,8 @@ var PhishingProfile = domain.Profile{
 	Description:  "Credential phishing and brand impersonation domains",
 }
 
-// AIProfile targets impersonation of AI/LLM products and vendors — a fast-growing
-// lure for fake "free credits", account-verification, and token-grant scams.
-//
-// BrandKeywords (+3) are exact product/vendor names. Keywords (+1) are generic
-// AI terms that appear on many legitimate sites.
+// AIProfile targets AI/LLM product and vendor impersonation (fake free-credit
+// and token-grant scams). BrandKeywords (+3) are exact vendors; Keywords (+1) are generic.
 var AIProfile = domain.Profile{
 	Name: "ai",
 	BrandKeywords: []string{

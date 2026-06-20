@@ -31,7 +31,6 @@ func FormatTable(hits []domain.Hit, w io.Writer) error {
 		}
 		ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
 
-		// Bookmark and live indicators.
 		domainStr := hit.Domain
 		if hit.Bookmarked {
 			domainStr = "* " + domainStr
@@ -100,9 +99,8 @@ func FormatCSV(hits []domain.Hit, w io.Writer) error {
 	return cw.Error()
 }
 
-// FormatStats writes database statistics in a human-readable format.
-// errWriter wraps an io.Writer and records the first write error, so a sequence
-// of formatted writes can be expressed without an error check after each call.
+// errWriter records the first write error so a run of formatted writes needs no
+// per-call error check.
 type errWriter struct {
 	w   io.Writer
 	err error
@@ -115,6 +113,7 @@ func (ew *errWriter) printf(format string, args ...any) {
 	_, ew.err = fmt.Fprintf(ew.w, format, args...)
 }
 
+// FormatStats writes database statistics in a human-readable format.
 func FormatStats(stats domain.DBStats, w io.Writer) error {
 	ew := &errWriter{w: w}
 

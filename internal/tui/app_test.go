@@ -184,8 +184,6 @@ func TestAppFilterOverlay(t *testing.T) {
 	}
 }
 
-// --- Phase 7.4 message handling tests ---
-
 func TestAppEnrichmentMsg_UpdatesFeedHit(t *testing.T) {
 	hitCh := make(chan domain.Hit, 1)
 	app := NewApp(nil, hitCh, nil, nil, nil, "test")

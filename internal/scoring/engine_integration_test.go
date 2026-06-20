@@ -50,9 +50,7 @@ func TestEngine_SignalsAndCategory(t *testing.T) {
 
 	t.Run("burner tld plus numeric sld is HIGH on its own", func(t *testing.T) {
 		r := engine.Score("4006.xin", profile)
-		// burner(+6) + numeric-sld(+3) = 9, plus the 4-digit run also trips
-		// digit-seq(+1) = 10. Either way >= 8 = HIGH, intended per Interisle:
-		// a 4-digit numeric SLD on a burner registry is near-diagnostic.
+		// burner(+6) + numeric-sld(+3) + 4-digit digit-seq(+1) = 10 (>= 8 = HIGH).
 		assert.Equal(t, 10, r.Score)
 		assert.Equal(t, domain.SeverityHigh, r.Severity)
 		assert.Contains(t, r.Signals, SignalBurnerTLD)

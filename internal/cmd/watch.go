@@ -76,7 +76,6 @@ func init() {
 // runWatch wires config, storage, scoring, profiles, and pollers, then
 // launches either the TUI dashboard or headless polling loop.
 func runWatch(_ *cobra.Command, _ []string) error {
-	// Load configuration and apply flag overrides.
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -89,15 +88,12 @@ func runWatch(_ *cobra.Command, _ []string) error {
 		"poll_interval", cfg.PollInterval,
 		"ct_logs", len(cfg.CTLogs))
 
-	// Open storage.
 	store, err := storage.NewDB(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer closeStore(store)
 
-	// Create scoring engine wired with the resolved TLD tiers, watched
-	// free-hosting platforms, and the keyword->category attribution map.
 	burnerTLDs, cheapTLDs := config.ResolveTLDTiers(cfg.TLDTiers)
 	scorer := scoring.NewEngine(scoring.Config{
 		BurnerTLDs:       burnerTLDs,
@@ -106,16 +102,13 @@ func runWatch(_ *cobra.Command, _ []string) error {
 		CategoryKeywords: profile.CategoryKeywords(),
 	})
 
-	// Load keyword profile.
 	profileMgr := profile.NewManager(cfg.CustomProfiles)
 	prof, err := profileMgr.LoadProfile(watchProfile)
 	if err != nil {
 		return fmt.Errorf("loading profile: %w", err)
 	}
 
-	// Compute the effective skip suffix list by merging hardcoded globals
-	// with user overrides from the config file. This replaces the profile's
-	// default skip suffixes with the merged effective list.
+	// The merged globals+overrides list replaces the profile's default suffixes.
 	prof.SkipSuffixes = config.MergeSkipSuffixes(profile.GlobalSkipSuffixes, cfg.SkipOverrides)
 
 	slog.Info("profile loaded",
@@ -132,14 +125,12 @@ func runWatch(_ *cobra.Command, _ []string) error {
 			"note", "--min-score and keyword gating ignored; storing all matching certs")
 	}
 
-	// Create channels for hit and stats streaming.
 	hitChan := make(chan domain.Hit, 256)
 	pollerStatsChan := make(chan poller.PollStats, 64)
 
-	// Create poller manager.
 	pollerMgr := poller.NewManager(cfg, scorer, store, prof, cfg.Backtrack, cfg.MinScore, watchSession, trackDomains)
 
-	// Discard channel streams zero-scored domain names for TUI activity feed.
+	// Discard channel streams zero-scored domain names for the TUI activity feed.
 	discardChan := make(chan string, 256)
 
 	if watchHeadless {
@@ -165,8 +156,6 @@ func runHeadless(
 		return fmt.Errorf("starting pollers: %w", err)
 	}
 
-	// Start enrichment pipeline — probes domains in the background and
-	// persists results to the store. Results are drained silently.
 	enrichResultChan := make(chan enrichment.EnrichResult, 256)
 	enricher := enrichment.NewEnricher(store, enrichResultChan)
 	go func() {
@@ -175,7 +164,6 @@ func runHeadless(
 		}
 	}()
 
-	// Drain hit channel, enqueuing each domain for enrichment.
 	go func() {
 		for hit := range hitChan {
 			enricher.Enqueue(hit.Domain)
@@ -195,7 +183,6 @@ func runHeadless(
 		}
 	}()
 
-	// Block until context is cancelled by signal.
 	<-ctx.Done()
 	slog.Info("shutdown signal received, stopping pollers")
 
@@ -220,8 +207,7 @@ func runTUI(
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Bridge poller stats to TUI stats in a separate goroutine.
-	// The poller emits per-log stats; the TUI expects aggregated stats.
+	// The poller emits per-log stats; the TUI expects them aggregated.
 	tuiStatsChan := make(chan tui.PollStats, 64)
 	go bridgePollerStats(ctx, pollerStatsChan, tuiStatsChan)
 
@@ -229,9 +215,6 @@ func runTUI(
 		return fmt.Errorf("starting pollers: %w", err)
 	}
 
-	// Start enrichment pipeline. The enricher probes domains for DNS and
-	// HTTP liveness in the background, storing results and publishing them
-	// for TUI consumption via enrichResultChan.
 	enrichResultChan := make(chan enrichment.EnrichResult, 256)
 	enricher := enrichment.NewEnricher(store, enrichResultChan)
 	go func() {
@@ -240,23 +223,18 @@ func runTUI(
 		}
 	}()
 
-	// Tap the hit channel: read each hit, forward it to the TUI channel,
-	// and enqueue the domain for enrichment.
 	tuiHitChan := make(chan domain.Hit, 256)
 	go tapHits(ctx, hitChan, tuiHitChan, enricher)
 
-	// Create TUI app with tapped hit channel, enrichment channel, and discard channel.
 	app := tui.NewApp(store, tuiHitChan, tuiStatsChan, enrichResultChan, discardChan, profileName)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
-	// Run TUI -- blocks until user quits.
 	if _, err := p.Run(); err != nil {
 		cancel()
 		pollerMgr.Stop()
 		return fmt.Errorf("running TUI: %w", err)
 	}
 
-	// Graceful shutdown: cancel context, stop pollers, close channels.
 	slog.Info("TUI exited, shutting down pollers")
 	cancel()
 	pollerMgr.Stop()
@@ -268,9 +246,8 @@ func runTUI(
 	return nil
 }
 
-// tapHits forwards hits from src to dst (for the TUI) while enqueuing each
-// domain for enrichment. It closes dst when src closes or the context is done.
-// Forwarding to dst never blocks: a full dst buffer drops the TUI copy.
+// tapHits enqueues each hit for enrichment and forwards it to dst, never
+// blocking — a full dst buffer drops the TUI copy. Closes dst on src/ctx done.
 func tapHits(ctx context.Context, src <-chan domain.Hit, dst chan<- domain.Hit, enricher *enrichment.Enricher) {
 	defer close(dst)
 	for {
@@ -290,9 +267,8 @@ func tapHits(ctx context.Context, src <-chan domain.Hit, dst chan<- domain.Hit, 
 	}
 }
 
-// bridgePollerStats aggregates per-log poller.PollStats into tui.PollStats
-// and forwards them on the TUI channel. Each per-log update recalculates
-// the aggregate view.
+// bridgePollerStats recalculates the aggregate tui.PollStats on every per-log
+// update and forwards it on the TUI channel.
 func bridgePollerStats(
 	ctx context.Context,
 	in <-chan poller.PollStats,

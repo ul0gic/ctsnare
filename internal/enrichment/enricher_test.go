@@ -90,7 +90,7 @@ func TestEnricher_LiveDomain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Enqueue the test server's hostname (strip scheme for ProbeLiveness).
 	// The httptest TLS server listens on 127.0.0.1, so DNS resolves.
@@ -118,7 +118,7 @@ func TestEnricher_DeadDomain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Use a domain that will not resolve.
 	enricher.Enqueue("this-domain-definitely-does-not-exist-4829.invalid")
@@ -144,7 +144,7 @@ func TestEnricher_GracefulShutdown(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		enricher.Run(ctx) //nolint:errcheck
+		enricher.Run(ctx) //nolint:errcheck // returns only ctx.Err() after cancel; not asserted
 		close(done)
 	}()
 
@@ -173,7 +173,7 @@ func TestEnricher_QueueOverflow(t *testing.T) {
 		enricher.Enqueue("overflow-domain.com")
 	}
 
-	// If we got here without blocking, the test passes.
+	// Reaching here without blocking means the drop path held.
 	assert.Len(t, enricher.queue, queueCapacity, "queue should be at capacity, not more")
 }
 
@@ -194,7 +194,7 @@ func TestEnricher_RateLimiting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Enqueue 20 domains. With a global rate of 5 req/sec, processing
 	// 20 domains should take roughly 4 seconds if rate limiting is working.
@@ -235,7 +235,7 @@ func TestEnricher_ResultSentOnChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	enricher.Enqueue("127.0.0.1")
 
@@ -258,7 +258,7 @@ func TestEnricher_StoreReceivesEnrichment(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	enricher.Enqueue("127.0.0.1")
 

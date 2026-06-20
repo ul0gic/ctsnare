@@ -1,7 +1,6 @@
 package domainutil
 
-// TrackMatchCase is one row in the shared domain-matcher case table. Target is
-// already normalized (lowercased, no wildcard/leading/trailing dot).
+// TrackMatchCase is one row in the shared matcher case table; Target is pre-normalized.
 type TrackMatchCase struct {
 	Name   string
 	Domain string
@@ -9,11 +8,8 @@ type TrackMatchCase struct {
 	Want   bool
 }
 
-// TrackMatchCases is the authoritative case table for domain-tracking match
-// semantics. It is shared (not test-local) so the storage-layer SQL parity test
-// can reuse the exact same cases as the Go matcher test, guaranteeing the Go
-// matcher (MatchesTrackTarget) and the SQL predicate
-// (LOWER(domain) = ? OR LOWER(domain) LIKE ?) never drift.
+// TrackMatchCases is shared (not test-local) so the storage SQL parity test and
+// the Go matcher test reuse identical cases, guaranteeing the two never drift.
 var TrackMatchCases = []TrackMatchCase{
 	{"apex exact", "openai.com", "openai.com", true},
 	{"subdomain", "api.openai.com", "openai.com", true},

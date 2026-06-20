@@ -9,27 +9,18 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// liveCTEnvVar gates the live-network integration test. The default suite
-// (go test ./...) must stay deterministic and offline, so this test is skipped
-// unless CTSNARE_LIVE_CT is set to a non-empty value. It can also be selected
-// with the `livect` build tag context in CI via the env var.
+// liveCTEnvVar gates the live-network test; the default suite stays offline
+// unless this is set, keeping go test deterministic.
 const liveCTEnvVar = "CTSNARE_LIVE_CT"
 
-// liveCTLog is a public RFC 6962 log used for the on-demand integration check.
-// Matches one of the logs in the shipped default config.
+// liveCTLog is a public RFC 6962 log from the shipped default config.
 const liveCTLog = "https://ct.googleapis.com/logs/us1/argon2026h1"
 
-// minLiveParseSuccessRatio is the floor for the share of fetched real entries
-// that must parse cleanly. ISSUE-004 produced a ~0% success ratio against the
-// live firehose; a healthy parser should clear well above this threshold.
+// minLiveParseSuccessRatio is the parse-success floor; ISSUE-004 sank it to ~0%.
 const minLiveParseSuccessRatio = 0.95
 
-// TestLiveCTParseSuccess fetches a small window of real entries from a public
-// CT log and asserts that the production parser recovers domains from the vast
-// majority of them. It is the on-demand regression check that would have caught
-// ISSUE-004 (222/222 precert parse failures) before release.
-//
-// Opt in with: CTSNARE_LIVE_CT=1 go test -run TestLiveCTParseSuccess ./internal/poller/
+// TestLiveCTParseSuccess asserts the parser recovers domains from most real
+// entries; opt in with CTSNARE_LIVE_CT=1. This is the ISSUE-004 regression net.
 func TestLiveCTParseSuccess(t *testing.T) {
 	if os.Getenv(liveCTEnvVar) == "" {
 		t.Skipf("live CT integration test skipped; set %s=1 to run", liveCTEnvVar)

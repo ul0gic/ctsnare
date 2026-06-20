@@ -2,10 +2,8 @@ package cmd
 
 import "runtime/debug"
 
-// version is the release version, injected by GoReleaser via ldflags
-// (-X .../internal/cmd.version={{.Version}}). It stays "dev" for plain
-// `go build`; for `go install module@version` builds resolveVersion falls
-// back to the module version recorded in build info.
+// version is injected by GoReleaser via ldflags; it stays "dev" for plain
+// builds, where resolveVersion falls back to module build info.
 var version = "dev"
 
 // resolveVersion returns the effective version string for --version output.

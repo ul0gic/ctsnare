@@ -2,11 +2,8 @@ package domain
 
 import "testing"
 
-// TestSeverityStringValues pins the wire/string values of the Severity
-// constants. These strings are load-bearing: storage persists them verbatim and
-// QueryFilter.Severity matches against them, so an accidental rename here would
-// silently break querying and stored-row classification. This is a sanity guard
-// on the frozen domain contract, not a behavior test.
+// Pins Severity wire strings: storage persists them verbatim and QueryFilter
+// matches against them, so a rename would silently break querying.
 func TestSeverityStringValues(t *testing.T) {
 	cases := []struct {
 		sev  Severity
@@ -23,8 +20,7 @@ func TestSeverityStringValues(t *testing.T) {
 	}
 }
 
-// TestSeverityValuesDistinct guards against two severity constants collapsing to
-// the same string, which would make classification ambiguous.
+// Guards against two severity constants collapsing to the same string.
 func TestSeverityValuesDistinct(t *testing.T) {
 	seen := map[Severity]struct{}{}
 	for _, s := range []Severity{SeverityHigh, SeverityMed, SeverityLow} {
@@ -35,9 +31,7 @@ func TestSeverityValuesDistinct(t *testing.T) {
 	}
 }
 
-// stubScorer / stubStore / stubProfileLoader confirm the core interfaces remain
-// implementable — a compile-time contract check that fails to build if a method
-// signature on the frozen interfaces drifts.
+// Compile-time check that the frozen interfaces stay implementable.
 type stubScorer struct{}
 
 func (stubScorer) Score(_ string, _ *Profile) ScoredDomain { return ScoredDomain{} }
@@ -46,9 +40,7 @@ func (stubScorer) ScoreWithCert(_ string, _ *Profile, _ CertMeta) ScoredDomain {
 	return ScoredDomain{}
 }
 
-// TestInterfacesImplementable asserts the domain interfaces can be satisfied.
-// The real value is at compile time; the runtime body just touches the stub so
-// it isn't reported as unused.
+// The real check is at compile time; the body just touches the stub.
 func TestInterfacesImplementable(t *testing.T) {
 	var s Scorer = stubScorer{}
 	got := s.Score("example.com", &Profile{Name: "test"})

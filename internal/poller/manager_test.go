@@ -249,7 +249,7 @@ func TestManager_MultipleLogConfigs(t *testing.T) {
 	sthCount := requestCounts["/ct/v1/get-sth"]
 	sthMu.Unlock()
 
-	// With 2 pollers, each making at least the initial STH request, we expect >= 2 requests.
+	// Two pollers each issue at least an initial STH request.
 	assert.GreaterOrEqual(t, sthCount, 2, "expected at least 2 STH requests from 2 pollers")
 }
 

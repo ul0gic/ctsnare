@@ -15,15 +15,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// DB wraps a SQLite database connection and provides persistence operations
-// for ctsnare hits.
+// DB wraps a SQLite connection and provides ctsnare's persistence operations.
 type DB struct {
 	db *sql.DB
 }
 
-// NewDB opens (or creates) a SQLite database at the given path, enables WAL
-// mode for concurrent access, and runs the schema migration. Parent
-// directories are created if they do not exist.
+// NewDB opens or creates the database at dbPath, enables WAL mode, runs
+// migrations, and creates parent directories as needed.
 func NewDB(dbPath string) (_ *DB, err error) {
 	// One-shot startup setup runs against a background context; the caller's
 	// request context is not yet available at construction time.
@@ -50,7 +48,6 @@ func NewDB(dbPath string) (_ *DB, err error) {
 		return nil, err
 	}
 
-	// Run schema creation.
 	if _, err = sqlDB.ExecContext(ctx, schemaSQL); err != nil {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
@@ -62,9 +59,8 @@ func NewDB(dbPath string) (_ *DB, err error) {
 	return &DB{db: sqlDB}, nil
 }
 
-// applyPragmas configures the per-connection SQLite settings: WAL mode for
-// concurrent access, a busy timeout so writers wait for locks instead of
-// failing with SQLITE_BUSY, and foreign-key enforcement.
+// applyPragmas sets WAL mode, a busy timeout so writers wait instead of failing
+// with SQLITE_BUSY, and foreign-key enforcement.
 func applyPragmas(ctx context.Context, sqlDB *sql.DB) error {
 	pragmas := []struct {
 		stmt string
@@ -85,19 +81,15 @@ func applyPragmas(ctx context.Context, sqlDB *sql.DB) error {
 // runMigrations applies the V2 and V3 schema migrations and backfills the
 // base_domain column. All steps are idempotent and safe to re-run.
 func runMigrations(ctx context.Context, sqlDB *sql.DB) error {
-	// V2 migration (enrichment + bookmark columns).
 	if err := runMigrationV2(ctx, sqlDB); err != nil {
 		return fmt.Errorf("running V2 migration: %w", err)
 	}
-	// V3 migration (base_domain column for subdomain grouping).
 	if err := runMigrationV3(ctx, sqlDB); err != nil {
 		return fmt.Errorf("running V3 migration: %w", err)
 	}
-	// V4 migration (signals + category columns).
 	if err := runMigrationV4(ctx, sqlDB); err != nil {
 		return fmt.Errorf("running V4 migration: %w", err)
 	}
-	// Backfill base_domain for any rows where it is still empty.
 	if err := backfillBaseDomain(ctx, sqlDB); err != nil {
 		return fmt.Errorf("backfilling base_domain: %w", err)
 	}
@@ -105,10 +97,7 @@ func runMigrations(ctx context.Context, sqlDB *sql.DB) error {
 }
 
 // runMigrationV2 adds enrichment and bookmark columns to the hits table.
-// Each ALTER TABLE is run individually; "duplicate column name" errors
-// are silently ignored so the migration is idempotent.
 func runMigrationV2(ctx context.Context, sqlDB *sql.DB) error {
-	// Execute each ALTER TABLE statement individually.
 	stmts := strings.Split(migrationV2SQL, ";")
 	for _, stmt := range stmts {
 		stmt = strings.TrimSpace(stmt)
@@ -116,8 +105,7 @@ func runMigrationV2(ctx context.Context, sqlDB *sql.DB) error {
 			continue
 		}
 		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil {
-			// SQLite returns "duplicate column name: X" when the column already exists.
-			// This is expected on subsequent runs -- skip silently.
+			// SQLite lacks ADD COLUMN IF NOT EXISTS; this is the idempotency check.
 			if strings.Contains(err.Error(), "duplicate column name") {
 				continue
 			}
@@ -125,7 +113,6 @@ func runMigrationV2(ctx context.Context, sqlDB *sql.DB) error {
 		}
 	}
 
-	// Create indexes (IF NOT EXISTS makes these naturally idempotent).
 	if _, err := sqlDB.ExecContext(ctx, migrationV2IndexSQL); err != nil {
 		return fmt.Errorf("creating V2 indexes: %w", err)
 	}
@@ -142,11 +129,8 @@ func runMigrationV4(ctx context.Context, sqlDB *sql.DB) error {
 	return runColumnMigration(ctx, sqlDB, "V4", migrationV4SQL, migrationV4IndexSQL)
 }
 
-// runColumnMigration applies a set of ALTER TABLE ADD COLUMN statements
-// followed by index creation. Each ALTER is run individually; "duplicate column
-// name" errors are silently ignored so the migration is idempotent and safe to
-// re-run. SQLite lacks ALTER TABLE ADD COLUMN IF NOT EXISTS, so this duplicate
-// check is the idempotency mechanism. label identifies the migration in errors.
+// runColumnMigration runs ADD COLUMN statements then index creation. SQLite lacks
+// ADD COLUMN IF NOT EXISTS, so ignoring "duplicate column name" is the idempotency check.
 func runColumnMigration(ctx context.Context, sqlDB *sql.DB, label, columnSQL, indexSQL string) error {
 	for _, stmt := range strings.Split(columnSQL, ";") {
 		stmt = strings.TrimSpace(stmt)
@@ -172,9 +156,8 @@ type baseDomainUpdate struct {
 	baseDomain string
 }
 
-// backfillBaseDomain reads all rows with an empty base_domain and computes
-// the base domain from the domain column. This runs on first startup after
-// upgrading to the V3 schema and is a no-op on subsequent startups.
+// backfillBaseDomain fills base_domain for rows missing it; runs once after the
+// V3 upgrade and is a no-op thereafter.
 func backfillBaseDomain(ctx context.Context, sqlDB *sql.DB) error {
 	updates, err := collectBackfillUpdates(ctx, sqlDB)
 	if err != nil {
@@ -235,7 +218,6 @@ func applyBackfillUpdates(ctx context.Context, sqlDB *sql.DB, updates []baseDoma
 	return nil
 }
 
-// Close closes the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
 }

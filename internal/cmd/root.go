@@ -39,10 +39,8 @@ func init() {
 	}
 }
 
-// initLogging configures the global slog logger based on the --verbose flag.
-// Verbose mode uses JSON output at Debug level; normal mode uses text output
-// at Info level. When not verbose, log output is discarded to avoid cluttering
-// terminal output (especially important for TUI mode).
+// initLogging sets the global slog logger from --verbose: JSON/Debug when set,
+// otherwise discarded so log lines don't corrupt the TUI.
 func initLogging(_ *cobra.Command, _ []string) error {
 	var handler slog.Handler
 

@@ -41,9 +41,8 @@ type AppModel struct {
 	discardChan <-chan string
 }
 
-// NewApp creates a new root TUI application model.
-// The store may be nil during Phase 2; real wiring happens in Phase 3.
-// Channels may be nil if the TUI is opened without polling or enrichment.
+// NewApp creates a new root TUI application model. A nil store or nil channels
+// are tolerated: the TUI then opens without polling or enrichment.
 func NewApp(
 	store domain.Store,
 	hitChan <-chan domain.Hit,
@@ -66,7 +65,6 @@ func NewApp(
 	}
 }
 
-// Init returns the initial commands for the app, including channel subscriptions.
 func (m AppModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.explorer.Init(),
@@ -87,7 +85,6 @@ func (m AppModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// Update handles all incoming messages and delegates to the active sub-model.
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -120,10 +117,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.delegateToView(msg)
 }
 
-// handleDataMsg forwards a store-load/mutation result to the view that owns it,
-// regardless of which view is active, so the explorer and network tables stay
-// current even when their data lands while another view is showing. The network
-// view owns ClustersLoadedMsg; the explorer owns the rest.
+// handleDataMsg routes a store result to its owning view (network owns
+// ClustersLoadedMsg, explorer the rest) so off-screen tables stay current.
 func (m AppModel) handleDataMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if _, ok := msg.(ClustersLoadedMsg); ok {
@@ -134,9 +129,8 @@ func (m AppModel) handleDataMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleStreamMsg processes the async streaming messages that feed the live
-// view: poller hits, enrichment results, discards, ticks, and stats. Each
-// re-arms its channel wait so the stream continues.
+// handleStreamMsg processes async feed-streaming messages (hits, enrichment,
+// discards, ticks, stats), re-arming each channel wait to continue the stream.
 func (m AppModel) handleStreamMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case HitMsg:
@@ -259,9 +253,8 @@ func (m AppModel) resizeAll(msg tea.WindowSizeMsg) AppModel {
 	return m
 }
 
-// forwardToFeed delivers a message to the feed sub-model and batches the feed's
-// command with an optional re-arm command (the next channel-wait), which is nil
-// when the corresponding channel is not wired up.
+// forwardToFeed delivers a message to the feed sub-model, batching its command
+// with the next channel-wait (rearm is nil when that channel isn't wired up).
 func (m AppModel) forwardToFeed(msg tea.Msg, rearm tea.Cmd) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.feed, cmd = m.feed.Update(msg)
@@ -271,22 +264,19 @@ func (m AppModel) forwardToFeed(msg tea.Msg, rearm tea.Cmd) (tea.Model, tea.Cmd)
 	return m, tea.Batch(cmd, rearm)
 }
 
-// handleGlobalKey processes app-level key bindings (quit, tab, filter overlay)
-// that take precedence over the active view. It returns handled=true when the
-// key was consumed at this level; otherwise the caller delegates to the view.
+// handleGlobalKey processes app-level bindings that take precedence over the
+// active view, returning handled=true when it consumed the key.
 func (m AppModel) handleGlobalKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
-	// Global quit: ctrl+c always quits.
 	if msg.String() == "ctrl+c" {
 		return true, m, tea.Quit
 	}
 
-	// The help overlay is modal: it handles its own dismissal and swallows
-	// everything else.
+	// The help overlay is modal: it handles its own dismissal and swallows the rest.
 	if m.activeView == viewHelp {
 		return m.handleHelpKey(msg)
 	}
 
-	// q quits unless in the filter overlay (where it is a typeable character).
+	// q is a typeable character in the filter overlay, so don't quit there.
 	if key.Matches(msg, m.keys.Quit) && m.activeView != viewFilter {
 		return true, m, tea.Quit
 	}
@@ -295,7 +285,6 @@ func (m AppModel) handleGlobalKey(msg tea.KeyMsg) (handled bool, model tea.Model
 		return true, model, cmd
 	}
 
-	// Tab toggles between feed and explorer.
 	if key.Matches(msg, m.keys.Tab) && m.activeView != viewFilter && m.activeView != viewDetail {
 		return m.handleTab()
 	}
@@ -306,16 +295,13 @@ func (m AppModel) handleGlobalKey(msg tea.KeyMsg) (handled bool, model tea.Model
 // handleOverlayKey opens the help or filter overlays. It returns handled=false
 // when no overlay-opening key matched.
 func (m AppModel) handleOverlayKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
-	// Help overlay toggle: available everywhere except the filter overlay, where
-	// "?" is a typeable character.
+	// "?" is a typeable character in the filter overlay, so don't toggle help there.
 	if key.Matches(msg, m.keys.Help) && m.activeView != viewFilter {
 		m.prevView = m.activeView
 		m.activeView = viewHelp
 		return true, m, nil
 	}
 
-	// Search (/) and Filter (f) both open the filter overlay in the explorer;
-	// the overlay opens focused on the keyword field.
 	if m.activeView == viewExplorer &&
 		(key.Matches(msg, m.keys.Search) || key.Matches(msg, m.keys.Filter)) {
 		opened := m.openFilterOverlay()
@@ -325,9 +311,8 @@ func (m AppModel) handleOverlayKey(msg tea.KeyMsg) (handled bool, model tea.Mode
 	return false, m, nil
 }
 
-// handleHelpKey processes a key while the help overlay is active. The overlay is
-// modal: ?, esc, and q dismiss it back to the previous view; all other keys are
-// swallowed.
+// handleHelpKey processes a key while the modal help overlay is active: ?, esc,
+// and q return to the previous view; all other keys are swallowed.
 func (m AppModel) handleHelpKey(msg tea.KeyMsg) (handled bool, model tea.Model, cmd tea.Cmd) {
 	if key.Matches(msg, m.keys.Help) || key.Matches(msg, m.keys.Escape) || key.Matches(msg, m.keys.Quit) {
 		m.activeView = m.prevView
@@ -345,16 +330,13 @@ func (m AppModel) openFilterOverlay() AppModel {
 	return m
 }
 
-// handleTab cycles through the primary views: feed -> explorer -> network ->
-// feed. Each data view reloads from the DB on entry so it reflects the latest
-// committed state.
+// handleTab cycles feed → explorer → network → feed; each data view reloads
+// from the DB on entry to reflect the latest committed state.
 func (m AppModel) handleTab() (handled bool, model tea.Model, cmd tea.Cmd) {
 	switch m.activeView {
 	case viewFeed:
 		m.activeView = viewExplorer
-		// Auto-reload explorer from DB when switching to it. The fresh load
-		// reflects committed deletions, so drop the per-cycle deleted-domain
-		// guard to keep it from accumulating across the session.
+		// Fresh load reflects committed deletions, so drop the per-cycle guard.
 		m.explorer.loading = true
 		m.explorer.deletedSet = make(map[string]bool)
 		return true, m, m.explorer.loadHitsCmd()
@@ -396,7 +378,6 @@ func (m AppModel) applyEnrichment(msg EnrichmentMsg) {
 	}
 }
 
-// View renders the currently active view.
 func (m AppModel) View() string {
 	if m.activeView == viewHelp {
 		return renderHelpOverlay(m.keys, m.width, m.height)
@@ -416,10 +397,8 @@ func (m AppModel) View() string {
 	return m.feed.View()
 }
 
-// renderHelpOverlay renders a centered modal listing all key bindings, grouped
-// as defined by KeyMap.FullHelp(). It is the single discoverable surface for
-// the powerful explorer keys (clear, batch delete, select-all) that do not fit
-// in the compact help bar.
+// renderHelpOverlay renders a centered modal of all bindings — the only
+// discoverable surface for the explorer keys that don't fit the compact help bar.
 func renderHelpOverlay(keys KeyMap, width, height int) string {
 	title := StyleTitle.Render("Keyboard Shortcuts")
 
@@ -452,11 +431,8 @@ func renderHelpOverlay(keys KeyMap, width, height int) string {
 	)
 }
 
-// --- Shared rendering helpers for Option B layout ---
-
-// renderTabBar renders the shared tab bar wrapped in a rounded border box.
-// activeView is one of viewFeed, viewExplorer, viewDetail.
-// extra is right-aligned metadata (e.g. hit count, time).
+// renderTabBar renders the shared tab bar in a rounded border box, with extra
+// as right-aligned metadata (e.g. hit count, time).
 func renderTabBar(activeView, width int, extra string) string {
 	appName := StyleAppName.Render("ctsnare")
 
@@ -509,7 +485,6 @@ func renderTitledPanel(title, content string, width int) string {
 		innerWidth = 1
 	}
 
-	// Build the custom top border with the title embedded.
 	titleRendered := " " + title + " "
 	titleLen := lipgloss.Width(titleRendered)
 	remaining := innerWidth - 1 - titleLen // 1 for the dash after corner
@@ -519,11 +494,9 @@ func renderTitledPanel(title, content string, width int) string {
 	topBorder := border.TopLeft + border.Top + titleRendered + strings.Repeat(border.Top, remaining) + border.TopRight
 	topBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(topBorder)
 
-	// Build bottom border.
 	bottomBorder := border.BottomLeft + strings.Repeat(border.Bottom, innerWidth) + border.BottomRight
 	bottomBorder = lipgloss.NewStyle().Foreground(colorSubtle).Render(bottomBorder)
 
-	// Wrap each content line with side borders.
 	borderStyle := lipgloss.NewStyle().Foreground(colorSubtle)
 	leftBorder := borderStyle.Render(border.Left)
 	rightBorder := borderStyle.Render(border.Right)

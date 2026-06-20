@@ -15,78 +15,48 @@ import (
 
 // CTLogConfig defines the URL and human-readable name for a single CT log.
 type CTLogConfig struct {
-	// URL is the base URL of the CT log, without a trailing slash.
-	// Example: "https://ct.googleapis.com/logs/us1/argon2025h1"
+	// URL is the CT log base URL, without a trailing slash.
 	URL string `toml:"url"`
 
-	// Name is the human-readable label shown in log output and the TUI stats bar.
 	Name string `toml:"name"`
 }
 
-// SkipOverrides holds user customizations to the skip suffix list.
-// These are persisted to the TOML config file under [skip_overrides] and
-// managed via `ctsnare skip add/remove/reset`.
-//
-// The effective skip list is computed as:
-//
-//	effective = GlobalSkipSuffixes + Additions - Removals
+// SkipOverrides holds user edits to the skip suffix list under [skip_overrides];
+// the effective list is GlobalSkipSuffixes + Additions - Removals.
 type SkipOverrides struct {
-	// Additions are domain suffixes the user has added to the skip list,
-	// on top of the hardcoded GlobalSkipSuffixes.
 	Additions []string `toml:"additions"`
-
-	// Removals are GlobalSkipSuffixes entries the user has un-skipped,
-	// allowing those domains to be scored again.
-	Removals []string `toml:"removals"`
+	Removals  []string `toml:"removals"`
 }
 
-// Config holds all configurable values for ctsnare.
-// All fields have sensible defaults -- use DefaultConfig to get a ready-to-use Config
-// without a config file. Fields from the TOML file override defaults; CLI flags
-// override both.
+// Config holds all configurable values for ctsnare. TOML overrides DefaultConfig;
+// CLI flags override both. Use DefaultConfig for a ready-to-use value.
 type Config struct {
-	// CTLogs is the list of Certificate Transparency logs to poll.
-	// Defaults to Google Argon 2026h1, Argon 2026h2, and Xenon 2026h1.
 	CTLogs []CTLogConfig `toml:"ct_logs"`
 
-	// DefaultProfile is the keyword profile to use when --profile is not specified.
-	// Defaults to "all" (combined crypto + phishing keywords).
+	// DefaultProfile is used when --profile is not specified. Default: "all".
 	DefaultProfile string `toml:"default_profile"`
 
-	// BatchSize is the number of CT log entries to fetch per poll request per log.
-	// Larger values increase throughput at the cost of memory. Default: 256.
+	// BatchSize is entries fetched per poll request per log. Default: 256.
 	BatchSize int `toml:"batch_size"`
 
-	// PollInterval is how long to wait between consecutive polls of each log.
-	// Default: 5 seconds. Set lower for near-real-time monitoring.
+	// PollInterval is the wait between consecutive polls of each log. Default: 5s.
 	PollInterval time.Duration `toml:"poll_interval"`
 
-	// DBPath is the filesystem path to the SQLite database file.
-	// Parent directories are created automatically. Defaults to the XDG-compliant path:
-	// ~/.local/share/ctsnare/ctsnare.db (or $XDG_DATA_HOME/ctsnare/ctsnare.db).
+	// DBPath defaults to the XDG path ~/.local/share/ctsnare/ctsnare.db; parents are created.
 	DBPath string `toml:"db_path"`
 
-	// CustomProfiles is a map of user-defined profiles loaded from the TOML config.
-	// Keys are profile names; values are Profile definitions.
-	// A profile can extend a built-in by setting Description to "extends:<name>".
+	// CustomProfiles can extend a built-in via Description "extends:<name>".
 	CustomProfiles map[string]domain.Profile `toml:"custom_profiles"`
 
-	// SkipOverrides holds user additions and removals to the skip suffix list.
-	// Managed via `ctsnare skip add/remove/reset` and persisted under [skip_overrides].
 	SkipOverrides SkipOverrides `toml:"skip_overrides"`
 
-	// TLDTiers configures the two-tier suspicious-TLD system (burner +6,
-	// cheap +1). Empty tiers fall back to built-in defaults; a configured tier
-	// replaces its default wholesale. Persisted under [tld_tiers].
+	// TLDTiers is the burner/cheap suspicious-TLD system; empty tiers fall back to defaults.
 	TLDTiers TLDTiers `toml:"tld_tiers"`
 
-	// Backtrack is the number of CT log entries behind the current tip to start at.
-	// When > 0, the poller begins at (tree_size - Backtrack), giving immediate
-	// results on launch. Default: 0 (start at the tip, wait for new entries).
+	// Backtrack starts the poller at (tree_size - Backtrack) when > 0. Default: 0 (tip).
 	Backtrack int64 `toml:"backtrack"`
 
-	// MinScore is the minimum score threshold for storing hits in the database.
-	// Domains scoring below this are discarded. Default: 0 (store all scored hits).
+	// MinScore is the threshold below which hits are discarded. Default: 0 (store all scored).
 	MinScore int `toml:"min_score"`
 }
 
@@ -117,9 +87,8 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load reads a TOML config file and returns a Config with defaults applied
-// for any missing values. If the file does not exist, it returns the default
-// config without error. An empty path also returns defaults.
+// Load reads a TOML config file with defaults applied for missing values.
+// A missing file or empty path returns the default config without error.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -178,10 +147,8 @@ func DefaultConfigPath() string {
 	return filepath.Join(configDir, "ctsnare", "config.toml")
 }
 
-// LoadSkipOverrides reads the TOML config file and returns only the
-// SkipOverrides section. If the file does not exist, returns empty
-// overrides without error. This is a lightweight read used by
-// `ctsnare skip list` without loading the full config.
+// LoadSkipOverrides reads only the [skip_overrides] section, avoiding a full
+// config load. A missing file or empty path returns empty overrides.
 func LoadSkipOverrides(path string) (SkipOverrides, error) {
 	if path == "" {
 		return SkipOverrides{}, nil
@@ -205,28 +172,25 @@ func LoadSkipOverrides(path string) (SkipOverrides, error) {
 	return partial.SkipOverrides, nil
 }
 
-// SaveSkipOverrides reads the existing TOML config file (or creates it if it
-// does not exist), updates only the [skip_overrides] section, and writes it
-// back atomically (temp file + rename). Parent directories are created if needed.
+// SaveSkipOverrides updates only the [skip_overrides] section of the config and
+// writes it back atomically (temp file + rename), creating parents as needed.
 func SaveSkipOverrides(path string, overrides SkipOverrides) error {
 	if path == "" {
 		return errors.New("config path is empty")
 	}
 
-	// Ensure parent directory exists. 0700 keeps the config dir user-private.
+	// 0700 keeps the config dir user-private.
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory %s: %w", dir, err)
 	}
 
-	// Read existing config or start with an empty one.
 	rawConfig, err := loadRawConfig(path)
 	if err != nil {
 		return err
 	}
 
-	// Prepare the overrides for encoding. Use empty slices instead of nil
-	// to produce `additions = []` rather than omitting the key.
+	// Empty slices instead of nil so TOML emits `additions = []` not an omitted key.
 	additions := overrides.Additions
 	if additions == nil {
 		additions = []string{}
@@ -241,7 +205,6 @@ func SaveSkipOverrides(path string, overrides SkipOverrides) error {
 		"removals":  removals,
 	}
 
-	// Encode to buffer.
 	var buf bytes.Buffer
 	buf.WriteString("# ctsnare configuration\n")
 	buf.WriteString("# Manage skip suffixes with: ctsnare skip add/remove/list/reset\n")
@@ -285,16 +248,16 @@ func atomicWrite(dir, path string, data []byte) error {
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
-		os.Remove(tmpPath) //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup of a temp file on an error path
 		return fmt.Errorf("writing temp file: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath) //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup of a temp file on an error path
 		return fmt.Errorf("closing temp file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) //nolint:errcheck
+		os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup of a temp file on an error path
 		return fmt.Errorf("renaming temp file to %s: %w", path, err)
 	}
 	return nil

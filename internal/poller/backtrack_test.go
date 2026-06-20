@@ -37,7 +37,7 @@ func TestBacktrack_TreeSize10000_Backtrack5000(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	deadline := time.After(5 * time.Second)
 	for firstStart.Load() == sentinelStart {
@@ -75,7 +75,7 @@ func TestBacktrack_TreeSize10000_BacktrackZero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	p.Run(ctx) //nolint:errcheck
+	p.Run(ctx) //nolint:errcheck // run blocks until ctx cancels; error is asserted separately
 
 	// With backtrack=0 at the tip and no new entries, no get-entries should fire.
 	assert.Equal(t, sentinelStart, firstStart.Load(),
@@ -105,7 +105,7 @@ func TestBacktrack_TreeSize10000_Backtrack20000_ClampsToZero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	deadline := time.After(5 * time.Second)
 	for firstStart.Load() == sentinelStart {
@@ -121,10 +121,8 @@ func TestBacktrack_TreeSize10000_Backtrack20000_ClampsToZero(t *testing.T) {
 		"when backtrack > tree_size, poller should clamp to index 0")
 }
 
-// TestBacktrack_ChangingTreeSize verifies that a poller handles a growing
-// CT log correctly. Initial STH returns tree_size=10000, backtrack=5000
-// starts at 5000. After fetching entries 5000..9999, the next STH returns
-// tree_size=12000. The poller should then process entries 10000..11999.
+// TestBacktrack_ChangingTreeSize verifies a poller follows a growing log: it
+// starts at backtrack offset, then advances to the next batch when the tree grows.
 func TestBacktrack_ChangingTreeSize(t *testing.T) {
 	var mu sync.Mutex
 	treeSize := int64(10000)
@@ -137,7 +135,7 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 		mu.Unlock()
 		sth := SignedTreeHead{TreeSize: ts, Timestamp: time.Now().UnixMilli()}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sth) //nolint:errcheck
+		json.NewEncoder(w).Encode(sth) //nolint:errcheck // test HTTP handler, encode cannot fail on a fixed struct
 	})
 	mux.HandleFunc("/ct/v1/get-entries", func(w http.ResponseWriter, r *http.Request) {
 		start, end := parseRange(r)
@@ -153,7 +151,7 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 		// Return empty entries so the poller advances its index.
 		resp := ctlogEntriesResponse{Entries: []ctlogEntry{}}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck // test HTTP handler, encode cannot fail on a fixed struct
 	})
 
 	server := httptest.NewServer(mux)
@@ -172,7 +170,7 @@ func TestBacktrack_ChangingTreeSize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	// Wait until the poller has processed entries beyond 10000
 	// (i.e., it noticed the tree grew to 12000).
@@ -231,9 +229,8 @@ func rangesStartAtOrAbove(ranges []struct{ Start, End int64 }, n int64) bool {
 	return false
 }
 
-// TestBacktrack_DiscardChan_ReceivesZeroScoreDomains verifies that the
-// discard channel receives domains that scored zero when backtrack causes
-// the poller to process historical entries.
+// TestBacktrack_DiscardChan_ReceivesZeroScoreDomains verifies zero-scored
+// domains reach the discard channel while processing backtracked entries.
 func TestBacktrack_DiscardChan_ReceivesZeroScoreDomains(t *testing.T) {
 	// The mock scorer returns score=0, so all domains go to discardChan.
 	var firstStart atomic.Int64
@@ -255,7 +252,7 @@ func TestBacktrack_DiscardChan_ReceivesZeroScoreDomains(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	// Wait for the poller to start (it will request entries starting at 4000).
 	deadline := time.After(3 * time.Second)

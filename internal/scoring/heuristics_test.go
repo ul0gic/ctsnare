@@ -95,9 +95,8 @@ func TestMatchKeywords(t *testing.T) {
 	}
 }
 
-// TestMatchKeywords_ShortKeywordBoundary proves short keywords (<= 4 chars)
-// match only on label/token boundaries, killing the substring false positives
-// observed on the live CT firehose while keeping legitimate matches.
+// TestMatchKeywords_ShortKeywordBoundary proves short keywords (<= 4 chars) match
+// only on token boundaries, killing the substring false positives seen on the live firehose.
 func TestMatchKeywords_ShortKeywordBoundary(t *testing.T) {
 	brand := []string{"dhl"}
 

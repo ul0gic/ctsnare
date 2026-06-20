@@ -3,146 +3,105 @@ package domain
 import "time"
 
 // Severity represents the threat level of a scored domain.
-// The three levels map to score thresholds: HIGH >= 8, MED 5-7, LOW 1-4.
+// Thresholds: HIGH >= 8, MED 5-7, LOW 1-4.
 type Severity string
 
 const (
-	// SeverityHigh indicates a score of 8 or above — near-certain malicious intent.
-	// Typically a multi-keyword hit on a suspicious TLD.
 	SeverityHigh Severity = "HIGH"
 
-	// SeverityMed indicates a score of 5 to 7 — suspicious, worth investigating.
 	SeverityMed Severity = "MED"
 
-	// SeverityLow indicates a score of 1 to 4 — single keyword match, noise-prone.
 	SeverityLow Severity = "LOW"
 )
 
-// Hit represents a scored domain that matched keyword heuristics, persisted to storage.
-// Every field except Session is populated from the certificate and scoring engine.
-// Session is set from the --session CLI flag and used to group monitoring runs.
+// Hit is a scored domain persisted to storage. Every field except Session comes
+// from the certificate and scoring engine; Session comes from the --session flag.
 type Hit struct {
-	// Domain is the matched domain name extracted from the certificate CN or SAN.
 	Domain string
 
-	// Score is the total numeric score assigned by the scoring engine.
 	Score int
 
-	// Severity is the threat level classification derived from Score.
 	Severity Severity
 
-	// Keywords contains the list of profile keywords found in Domain.
 	Keywords []string
 
-	// Signals is the list of stable per-heuristic signal keys that fired during
-	// scoring (e.g. "brand-keyword", "typosquat", "burner-tld"). Unlike Keywords,
-	// which records the matched terms, Signals records which heuristics
-	// contributed to the score — making hits filterable by detection mechanism.
+	// Which heuristics fired (e.g. "typosquat"), unlike Keywords' matched terms;
+	// makes hits filterable by detection mechanism.
 	Signals []string
 
-	// Category is the profile bucket that produced the strongest match:
-	// "crypto", "phishing", "ai", "hosted-abuse", "tracker", or empty when no
-	// categorized signal fired.
+	// Strongest-match bucket: "crypto", "phishing", "ai", "hosted-abuse",
+	// "tracker", or empty.
 	Category string
 
-	// Issuer is the certificate issuer organization name.
 	Issuer string
 
-	// IssuerCN is the certificate issuer Common Name.
 	IssuerCN string
 
-	// SANDomains contains all Subject Alternative Name DNS entries from the certificate.
-	// This includes the domain itself plus any other domains sharing the certificate.
 	SANDomains []string
 
-	// CertNotBefore is the certificate validity start timestamp.
 	CertNotBefore time.Time
 
-	// CTLog is the name of the CT log from which this entry was fetched.
 	CTLog string
 
-	// Profile is the name of the keyword profile active when this hit was scored.
 	Profile string
 
-	// Session is an optional user-defined tag for grouping monitoring runs.
-	// Empty string means the default (untagged) session.
+	// Empty means the default (untagged) session.
 	Session string
 
-	// CreatedAt is when this hit was first stored in the database.
 	CreatedAt time.Time
 
-	// UpdatedAt is when this hit was last updated (e.g., after a duplicate domain appears in a new cert).
 	UpdatedAt time.Time
 
-	// IsLive indicates the domain responded to an HTTP probe (HEAD request).
-	// Populated by the enrichment pipeline; false by default.
+	// Enrichment-populated; false by default.
 	IsLive bool
 
-	// ResolvedIPs contains DNS A/AAAA records for the domain.
-	// Populated by the enrichment pipeline; nil by default.
+	// Enrichment-populated; nil by default.
 	ResolvedIPs []string
 
-	// HostingProvider is the detected CDN or hosting provider from reverse DNS or IP range matching.
-	// Populated by the enrichment pipeline; empty string by default.
+	// Enrichment-populated; empty by default.
 	HostingProvider string
 
-	// HTTPStatus is the HTTP status code returned by the liveness probe.
 	// Zero when no probe has been performed.
 	HTTPStatus int
 
-	// LiveCheckedAt is when the enrichment liveness probe was last run.
-	// Zero value when no probe has been performed.
+	// Zero when no probe has been performed.
 	LiveCheckedAt time.Time
 
-	// Bookmarked indicates the user has flagged this hit as interesting.
-	// False by default.
 	Bookmarked bool
 
-	// BaseDomain is the registrable base domain extracted from Domain.
-	// Used for grouping subdomains that belong to the same campaign.
-	// Computed automatically on insert/upsert; empty for legacy rows
+	// Registrable base domain for grouping subdomains; empty for legacy rows
 	// until the V3 migration backfill runs.
 	BaseDomain string
 }
 
-// CTLogEntry represents a raw entry from a Certificate Transparency log before scoring.
-// It is the output of the CT log HTTP client and the input to the parser.
+// CTLogEntry is a raw CT log entry before scoring: output of the CT log HTTP
+// client, input to the parser.
 type CTLogEntry struct {
-	// LeafInput is the raw base64-decoded MerkleTreeLeaf bytes from the CT log API.
+	// Base64-decoded MerkleTreeLeaf bytes from the CT log API.
 	LeafInput []byte
 
-	// ExtraData is the raw base64-decoded extra_data bytes from the CT log API.
+	// Base64-decoded extra_data bytes from the CT log API.
 	ExtraData []byte
 
-	// Index is the zero-based position of this entry in the CT log tree.
 	Index int64
 
-	// LogURL is the base URL of the CT log that produced this entry.
 	LogURL string
 }
 
-// ScoredDomain is the output of the scoring engine and input to storage.
-// It carries only the fields needed to persist a hit — the full Hit is
-// constructed in the poller with additional certificate metadata.
+// ScoredDomain is the scoring engine's output; the poller builds the full Hit
+// from it plus certificate metadata.
 type ScoredDomain struct {
-	// Domain is the domain name that was scored.
 	Domain string
 
-	// Score is the total numeric score from all heuristics.
 	Score int
 
-	// Severity is the threat level classification.
 	Severity Severity
 
-	// MatchedKeywords is the list of profile keywords found in Domain.
 	MatchedKeywords []string
 
-	// Signals is the list of stable per-heuristic signal keys that fired,
-	// providing a structured breakdown of which heuristics drove the score.
-	// See the scoring package for the full set of signal keys.
+	// Which heuristics fired; see the scoring package for the full key set.
 	Signals []string
 
-	// Category is the profile bucket of the strongest match: "crypto",
-	// "phishing", "ai", "hosted-abuse", or empty when no categorized signal fired.
+	// Strongest-match bucket: "crypto", "phishing", "ai", "hosted-abuse", or empty.
 	Category string
 }

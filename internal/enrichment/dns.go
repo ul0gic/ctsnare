@@ -7,11 +7,10 @@ import (
 	"time"
 )
 
-// dnsTimeout is the maximum time allowed for DNS resolution.
 const dnsTimeout = 3 * time.Second
 
-// knownCIDRs maps hosting provider names to their known IP CIDR ranges.
-// Only a representative subset is included -- enough for common CDN/cloud detection.
+// knownCIDRs holds a representative subset of provider ranges, enough for
+// common CDN/cloud detection.
 var knownCIDRs = map[string][]string{
 	"cloudflare": {
 		"104.16.0.0/12",
@@ -45,7 +44,7 @@ func init() {
 		for _, cidr := range cidrs {
 			_, ipNet, err := net.ParseCIDR(cidr)
 			if err != nil {
-				// Programming error in the static table -- panic at init.
+				// Static-table typo is a programming error, not a runtime condition.
 				panic("invalid CIDR in knownCIDRs: " + cidr + ": " + err.Error())
 			}
 			nets = append(nets, ipNet)
@@ -54,7 +53,6 @@ func init() {
 	}
 }
 
-// reverseDNSPatterns maps substrings in reverse DNS names to provider names.
 var reverseDNSPatterns = map[string]string{
 	"cloudflare":        "cloudflare",
 	"amazonaws.com":     "aws",
@@ -67,10 +65,8 @@ var reverseDNSPatterns = map[string]string{
 	"digitalocean.com":  "digitalocean",
 }
 
-// ResolveDomain performs DNS A/AAAA lookups and attempts to identify the
-// hosting provider via CIDR range matching or reverse DNS. Returns the
-// resolved IP addresses, detected provider name ("unknown" if undetected),
-// and any error from the resolution.
+// ResolveDomain looks up A/AAAA records and detects the provider via CIDR or
+// reverse DNS; provider is "unknown" when undetected.
 func ResolveDomain(ctx context.Context, domainName string) (ips []string, provider string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
@@ -82,12 +78,11 @@ func ResolveDomain(ctx context.Context, domainName string) (ips []string, provid
 
 	ips = addrs
 
-	// Try CIDR matching first -- faster and more reliable.
+	// CIDR match first -- faster and more reliable than a PTR lookup.
 	if p := matchCIDR(addrs); p != "" {
 		return ips, p, nil
 	}
 
-	// Fall back to reverse DNS lookup on the first IP.
 	if p := matchReverseDNS(ctx, addrs); p != "" {
 		return ips, p, nil
 	}
@@ -95,7 +90,6 @@ func ResolveDomain(ctx context.Context, domainName string) (ips []string, provid
 	return ips, "unknown", nil
 }
 
-// matchCIDR checks each resolved IP against known provider CIDR ranges.
 func matchCIDR(addrs []string) string {
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)

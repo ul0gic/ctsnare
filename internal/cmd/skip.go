@@ -126,7 +126,6 @@ func runSkipList(_ *cobra.Command, _ []string) error {
 	globals := profile.GlobalSkipSuffixes
 	effective := config.MergeSkipSuffixes(globals, overrides)
 
-	// Build lookup sets for display categorization.
 	removalsSet := toSet(overrides.Removals)
 	globalsSet := toSet(globals)
 
@@ -161,9 +160,8 @@ func runSkipList(_ *cobra.Command, _ []string) error {
 		fmt.Println()
 	}
 
-	// Watched free-hosting platforms are NOT skipped outright — their tenant
-	// labels are scored instead (brand-on-platform phishing). Surface them here
-	// so the skip picture is complete.
+	// Watched platforms aren't skipped — their tenant labels are scored instead
+	// (brand-on-platform phishing); surfaced here for a complete skip picture.
 	fmt.Printf("Watched platforms (tenant-scored, not skipped): %d\n", len(profile.WatchPlatformSuffixes))
 	for _, s := range profile.WatchPlatformSuffixes {
 		fmt.Printf("  %s [watch]\n", s)
@@ -193,19 +191,17 @@ func runSkipAdd(_ *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Warn if already a global.
 		if _, isGlobal := globalsSet[domain]; isGlobal {
 			fmt.Fprintf(os.Stderr, "Warning: %q is already in the global skip list.\n", domain)
 			continue
 		}
 
-		// Skip if already in additions.
 		if _, exists := additionsSet[domain]; exists {
 			fmt.Fprintf(os.Stderr, "Already in additions: %q\n", domain)
 			continue
 		}
 
-		// If the domain was previously removed (un-skipped), undo that removal.
+		// Re-adding a previously un-skipped global undoes that removal.
 		overrides.Removals = removeFromSlice(overrides.Removals, domain)
 
 		overrides.Additions = append(overrides.Additions, domain)
@@ -244,7 +240,6 @@ func runSkipRemove(_ *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Case 1: domain is a user addition -- remove from additions.
 		if _, inAdditions := additionsSet[domain]; inAdditions {
 			overrides.Additions = removeFromSlice(overrides.Additions, domain)
 			delete(additionsSet, domain)
@@ -253,9 +248,8 @@ func runSkipRemove(_ *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Case 2: domain is a global -- add to removals (un-skip it).
+		// A global can't be deleted, only un-skipped by adding it to removals.
 		if _, isGlobal := globalsSet[domain]; isGlobal {
-			// Check if already in removals.
 			removalsSet := toSet(overrides.Removals)
 			if _, already := removalsSet[domain]; already {
 				fmt.Fprintf(os.Stderr, "Already un-skipped: %q\n", domain)
@@ -315,8 +309,6 @@ func runSkipReset(_ *cobra.Command, _ []string) error {
 // Returns the normalized (lowercase, trimmed) domain or an error.
 func validateDomain(raw string) (string, error) {
 	d := strings.TrimSpace(strings.ToLower(raw))
-
-	// Remove trailing dot if present.
 	d = strings.TrimSuffix(d, ".")
 
 	if d == "" {

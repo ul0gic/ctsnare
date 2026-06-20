@@ -13,22 +13,18 @@ type Manager struct {
 	profiles map[string]domain.Profile
 }
 
-// NewManager creates a Manager pre-loaded with built-in profiles and any
-// custom profiles from config. Custom profiles with an Extends field that
-// matches a built-in profile name will inherit the built-in's keywords and
-// TLDs, with custom entries appended.
+// NewManager pre-loads the built-in profiles plus any custom profiles, which may
+// extend a built-in by name (see resolveProfile).
 func NewManager(customProfiles map[string]domain.Profile) *Manager {
 	m := &Manager{
 		profiles: make(map[string]domain.Profile),
 	}
 
-	// Register built-in profiles.
 	m.profiles["crypto"] = CryptoProfile
 	m.profiles["phishing"] = PhishingProfile
 	m.profiles["ai"] = AIProfile
 	m.profiles["all"] = AllProfile
 
-	// Merge custom profiles. A custom profile can extend a built-in by name.
 	for name, custom := range customProfiles {
 		resolved := resolveProfile(name, custom, m.profiles)
 		m.profiles[name] = resolved
@@ -56,17 +52,9 @@ func (m *Manager) ListProfiles() []string {
 	return names
 }
 
-// resolveProfile applies extension logic: if the custom profile's Name field
-// contains an "extends:<base>" directive, it inherits keywords, TLDs, and
-// skip suffixes from the base profile and appends its own. Otherwise it
-// starts fresh.
-//
-// The extension convention: set the profile Description to "extends:<base>"
-// to inherit from a built-in profile. This avoids adding an Extends field
-// to the domain.Profile struct (which is frozen).
+// resolveProfile inherits from a built-in when custom.Description is "extends:<base>";
+// the convention lives in Description to avoid adding a field to the frozen domain.Profile.
 func resolveProfile(name string, custom domain.Profile, builtins map[string]domain.Profile) domain.Profile {
-	// Check if the profile extends a built-in via a convention in Description.
-	// Format: "extends:crypto" or "extends:phishing"
 	const prefix = "extends:"
 	if len(custom.Description) > len(prefix) && custom.Description[:len(prefix)] == prefix {
 		baseName := custom.Description[len(prefix):]
@@ -82,7 +70,6 @@ func resolveProfile(name string, custom domain.Profile, builtins map[string]doma
 		}
 	}
 
-	// No extension -- use as-is, filling in name if empty.
 	result := custom
 	if result.Name == "" {
 		result.Name = name

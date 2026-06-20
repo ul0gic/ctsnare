@@ -28,7 +28,6 @@ Examples:
 	},
 }
 
-// db stats subcommand
 var dbStatsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show database statistics",
@@ -36,7 +35,6 @@ var dbStatsCmd = &cobra.Command{
 	RunE:  runDBStats,
 }
 
-// db clear subcommand
 var (
 	dbClearConfirm bool
 	dbClearSession string
@@ -56,7 +54,6 @@ Examples:
 	RunE: runDBClear,
 }
 
-// db export subcommand
 var (
 	dbExportFormat string
 	dbExportOutput string
@@ -77,7 +74,6 @@ Examples:
 	RunE: runDBExport,
 }
 
-// db path subcommand
 var dbPathCmd = &cobra.Command{
 	Use:   "path",
 	Short: "Show the database file path",
@@ -118,9 +114,8 @@ func openDB() (*storage.DB, error) {
 	return store, nil
 }
 
-// closeStore closes a database handle, logging any close error at debug level.
-// Close failures on a read-only command are not actionable for the user but
-// should not be silently discarded.
+// closeStore closes the handle, logging a close error at debug level — not
+// actionable for a read-only command, but not silently discarded either.
 func closeStore(store *storage.DB) {
 	if err := store.Close(); err != nil {
 		slog.Debug("closing database", "error", err)
@@ -180,7 +175,6 @@ func runDBExport(_ *cobra.Command, _ []string) error {
 	}
 	defer closeStore(store)
 
-	// Determine output destination.
 	var w *os.File
 	if dbExportOutput != "" {
 		w, err = os.Create(dbExportOutput) //nolint:gosec // dbExportOutput is the user-supplied --output path

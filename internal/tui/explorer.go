@@ -13,19 +13,16 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// ipColumnMinWidth is the terminal width at or above which the explorer shows
-// the resolved-IP column. Below it the IP is dropped so the core columns
-// (domain, keywords, issuer) stay readable — mirroring the responsive
-// disclosure the feed uses for its keyword sidebar.
+// ipColumnMinWidth is the width at which the IP column appears; below it the IP
+// is dropped so domain/keywords/issuer stay readable.
 const ipColumnMinWidth = 110
 
 var explorerColumns = []string{
 	"Severity", "Score", "Domain", "Keywords", "IP", "Issuer", "Session", "Timestamp",
 }
 
-// sortColumns maps a sort-cycle index to the database sort field name. The IP
-// column sorts on the resolved_ips JSON text, which clusters domains sharing a
-// leading address together — a useful grouping even though it is not numeric.
+// sortColumns maps a sort-cycle index to a DB sort field; IP sorts on the
+// resolved_ips JSON text, clustering shared addresses though it isn't numeric.
 var sortColumns = []string{
 	"severity", "score", "domain", "keywords", "resolved_ips", "issuer", "session", "created_at",
 }
@@ -54,20 +51,14 @@ type ExplorerModel struct {
 	keepSelection bool   // preserve selection across the next reload (e.g. sort)
 	confirmAction string // empty, "delete-single", "delete-batch", "clear-all"
 	confirmDomain string // domain for single delete confirmation
-	// deletedSet holds domains deleted since the last reload, filtered out of the
-	// next HitsLoadedMsg so an in-flight poller re-insert cannot resurrect a row
-	// the user just deleted. It is bounded to a single reload cycle: every
-	// explicit reload (sort, filter apply, tab-in, r) clears it, because the
-	// freshly loaded set already reflects deletions committed to the DB. A domain
-	// is therefore only suppressed until the next reload — if it is legitimately
-	// re-observed and re-stored later, it reappears on the next load.
+	// Suppresses deleted domains until the next reload so an in-flight poller
+	// re-insert can't resurrect a just-deleted row; every reload clears it.
 	deletedSet map[string]bool
 	statusText string // brief status message shown in filter bar
 	showIP     bool   // include the resolved-IP column (set by width on resize)
 }
 
-// NewExplorerModel creates a new DB explorer view.
-// The store parameter may be nil during Phase 2; it will be wired in Phase 3.
+// NewExplorerModel creates a new DB explorer view. A nil store renders empty.
 func NewExplorerModel(store domain.Store) ExplorerModel {
 	t := table.New(
 		table.WithColumns(explorerTableColumns(false)),
@@ -104,12 +95,10 @@ func NewExplorerModel(store domain.Store) ExplorerModel {
 	}
 }
 
-// Init returns the initial command for the explorer model.
 func (m ExplorerModel) Init() tea.Cmd {
 	return m.loadHitsCmd()
 }
 
-// Update handles messages for the explorer model.
 func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -121,7 +110,6 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 		return m.handleHitsLoaded(msg), nil
 
 	case DeleteHitsMsg:
-		// Hits were deleted -- reload.
 		m.selected = make(map[int]bool)
 		m.loading = true
 		return m, m.loadHitsCmd()
@@ -140,7 +128,6 @@ func (m ExplorerModel) Update(msg tea.Msg) (ExplorerModel, tea.Cmd) {
 	return m, cmd
 }
 
-// resize recomputes the table dimensions to fit the new terminal size.
 func (m ExplorerModel) resize(msg tea.WindowSizeMsg) ExplorerModel {
 	m.width = msg.Width
 	m.height = msg.Height
@@ -189,11 +176,9 @@ func (m ExplorerModel) applyBookmarkToggle(msg BookmarkToggleMsg) ExplorerModel 
 	return m
 }
 
-// handleHitsLoaded applies a freshly loaded hit set, filtering out recently
-// deleted domains and remapping the selection by domain identity when a reload
-// was requested with keepSelection set.
+// handleHitsLoaded applies a loaded hit set, dropping recently deleted domains
+// and remapping selection by domain identity when keepSelection is set.
 func (m ExplorerModel) handleHitsLoaded(msg HitsLoadedMsg) ExplorerModel {
-	// Filter out recently deleted domains so the poller can't re-insert them visually.
 	filtered := make([]domain.Hit, 0, len(msg.Hits))
 	for _, h := range msg.Hits {
 		if !m.deletedSet[h.Domain] {
@@ -202,7 +187,6 @@ func (m ExplorerModel) handleHitsLoaded(msg HitsLoadedMsg) ExplorerModel {
 	}
 
 	if m.keepSelection {
-		// Remap selection by domain identity across reloads (e.g. sort change).
 		oldDomains := make(map[string]bool, len(m.selected))
 		for idx := range m.selected {
 			if idx < len(m.hits) {
@@ -229,16 +213,14 @@ func (m ExplorerModel) handleHitsLoaded(msg HitsLoadedMsg) ExplorerModel {
 // handleKey routes a key press to the matching explorer action. The
 // confirmation overlay takes precedence over all other bindings.
 func (m ExplorerModel) handleKey(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
-	// Handle confirmation overlay first.
 	if m.confirmAction != "" {
 		return m.handleConfirm(msg)
 	}
 
-	// Clear status message on any key press.
 	m.statusText = ""
 
-	// Clear-all (C) is the single most destructive action; route it through the
-	// keymap binding so the help overlay and the handler share one source of truth.
+	// Route C through the keymap binding so the help overlay and handler share
+	// one source of truth for the most destructive action.
 	if key.Matches(msg, m.keys.Clear) {
 		return m.handleDeleteKey("C"), nil
 	}
@@ -363,8 +345,6 @@ func (m ExplorerModel) cycleSort() ExplorerModel {
 	m.filter.SortDir = m.sortDir
 	m.loading = true
 	m.keepSelection = true
-	// A sort reload re-reads committed state; the deleted-domain guard is no
-	// longer needed and must not leak into the next session.
 	m.deletedSet = make(map[string]bool)
 	return m
 }
@@ -398,7 +378,6 @@ func (m ExplorerModel) handleConfirm(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 
 		switch action {
 		case "delete-single":
-			// Track deleted domain so poller re-inserts don't bring it back.
 			m.deletedSet[domainName] = true
 			return m, m.deleteSingleCmd(domainName)
 		case "delete-batch":
@@ -409,7 +388,6 @@ func (m ExplorerModel) handleConfirm(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 			}
 			return m, m.deleteBatchCmd()
 		case "clear-all":
-			// Clear all resets everything including the deleted set.
 			m.deletedSet = make(map[string]bool)
 			return m, m.clearAllCmd()
 		}
@@ -422,30 +400,23 @@ func (m ExplorerModel) handleConfirm(msg tea.KeyMsg) (ExplorerModel, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the explorer model as a string.
 func (m ExplorerModel) View() string {
 	if !m.ready {
 		return "Initializing explorer..."
 	}
 
-	// Tab bar with hit count and clock.
 	tabExtra := StyleHelpDesc.Render(fmt.Sprintf("%d hits", len(m.hits))) + " " + StyleHelpDesc.Render(formatClock())
 	tabBar := renderTabBar(viewExplorer, m.width, tabExtra)
 
-	// Build the panel title from filter/sort/count info.
 	panelTitle := m.buildPanelTitle()
 
-	// Table rendered inside the panel, or an empty-state hint when there are
-	// no rows to show.
 	tableView := m.table.View()
 	if !m.loading && len(m.hits) == 0 {
 		tableView = m.renderEmptyState()
 	}
 
-	// Wrap the table in a titled panel.
 	contentPanel := renderTitledPanel(panelTitle, tableView, m.width)
 
-	// Help bar or confirmation overlay (confirmation replaces help bar).
 	var bottomBar string
 	if m.confirmAction != "" {
 		bottomBar = m.renderConfirmPrompt()
@@ -484,7 +455,6 @@ func (m ExplorerModel) buildPanelTitle() string {
 		title += fmt.Sprintf(" ── %d selected", len(m.selected))
 	}
 
-	// Status text (delete feedback).
 	if m.statusText != "" {
 		title += " ── " + m.statusText
 	}
@@ -535,8 +505,6 @@ func (m *ExplorerModel) SetFilter(f domain.QueryFilter) tea.Cmd {
 	}
 	m.filter = f
 	m.loading = true
-	// A filter-driven reload re-reads committed state, so the per-cycle
-	// deleted-domain guard can be dropped here too.
 	m.deletedSet = make(map[string]bool)
 	return m.loadHitsCmd()
 }
@@ -554,11 +522,8 @@ func (m ExplorerModel) renderConfirmPrompt() string {
 	return StyleConfirmOverlay.Width(m.width - 2).Render(" " + prompt)
 }
 
-// renderEmptyState returns a centered hint shown when the table has no rows.
-// It distinguishes "no data yet" from "no matches for the active filter" so the
-// user can tell whether the database is empty or their filter excluded
-// everything. The block is padded to roughly the table height to keep the panel
-// from collapsing.
+// renderEmptyState shows a centered hint that distinguishes "no data yet" from
+// "no matches for the active filter", padded to the table height.
 func (m ExplorerModel) renderEmptyState() string {
 	var msg string
 	if len(m.filterParts()) > 0 {
@@ -598,9 +563,8 @@ func (m ExplorerModel) renderHelpBar() string {
 	return " " + help
 }
 
-// explorerTableColumns returns the table column set, optionally including the
-// resolved-IP column. The IP column slots between Keywords and Issuer so the
-// header order matches explorerColumns and the cell order in hitToRow.
+// explorerTableColumns returns the column set; the optional IP column slots
+// between Keywords and Issuer to match explorerColumns and hitToRow.
 func explorerTableColumns(showIP bool) []table.Column {
 	cols := []table.Column{
 		{Title: " ", Width: 4},
@@ -639,7 +603,6 @@ func (m ExplorerModel) hitsToRows() []table.Row {
 // hitToRow formats a single hit into a styled table row. Index i is used to
 // reflect the row's selection state in the checkbox column.
 func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
-	// Checkbox column -- plain text only, no ANSI in cell data.
 	checkbox := "[ ]"
 	if m.selected[i] {
 		checkbox = "[x]"
@@ -650,12 +613,10 @@ func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
 	issuer := truncate(hit.IssuerCN, 18)
 	ts := hit.CreatedAt.Format("2006-01-02 15:04:05")
 
-	// Color cells by severity.
 	sevStyle := SeverityStyle(string(hit.Severity))
 	sevText := sevStyle.Render(string(hit.Severity))
 	scoreText := sevStyle.Render(strconv.Itoa(hit.Score))
 
-	// Domain colored by severity, or green if live.
 	domText := sevStyle.Render(dom)
 	if hit.IsLive {
 		domText = StyleLiveDomain.Render(dom)
@@ -668,9 +629,8 @@ func (m ExplorerModel) hitToRow(i int, hit domain.Hit) table.Row {
 	return append(row, issuer, hit.Session, ts)
 }
 
-// truncate shortens s to at most maxLen runes, appending an ellipsis when cut.
-// It operates on runes, not bytes, so multibyte (IDN/homograph) domains are
-// never split mid-rune into invalid UTF-8.
+// truncate shortens s to maxLen runes (ellipsis when cut), operating on runes
+// not bytes so multibyte IDN/homograph domains never split into invalid UTF-8.
 func truncate(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""

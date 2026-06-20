@@ -13,13 +13,11 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// SignedTreeHead represents the response from the CT log get-sth endpoint.
-// It reports the current size of the log tree and when it was last updated.
+// SignedTreeHead is the get-sth response: the current tree size and sign time.
 type SignedTreeHead struct {
-	// TreeSize is the total number of entries in the CT log.
 	TreeSize int64 `json:"tree_size"`
 
-	// Timestamp is the Unix millisecond timestamp when this tree head was signed.
+	// Timestamp is the Unix millisecond time the tree head was signed.
 	Timestamp int64 `json:"timestamp"`
 }
 
@@ -52,9 +50,8 @@ type limitedReadCloser struct {
 	io.Closer
 }
 
-// NewCTLogClient creates a client for the given CT log base URL.
-// Redirects are disabled because CT log APIs should never redirect,
-// and following redirects could enable SSRF to internal endpoints.
+// NewCTLogClient creates a client for the CT log base URL. Redirects are
+// disabled: CT log APIs never redirect, and following one could enable SSRF.
 func NewCTLogClient(baseURL string) *CTLogClient {
 	return &CTLogClient{
 		httpClient: &http.Client{
@@ -144,9 +141,7 @@ func (c *CTLogClient) doGet(ctx context.Context, url string) (io.ReadCloser, err
 		}
 
 		if resp.StatusCode == http.StatusOK {
-			// Cap response size to prevent memory exhaustion from
-			// oversized payloads. The underlying body is still closed
-			// by the caller via the wrapping ReadCloser.
+			// Cap the read so an oversized payload cannot exhaust memory.
 			limited := &limitedReadCloser{
 				Reader: io.LimitReader(resp.Body, maxResponseBodySize),
 				Closer: resp.Body,

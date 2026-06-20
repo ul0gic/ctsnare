@@ -84,7 +84,7 @@ func TestDefaultDBPath_XDGDataHome_Unset(t *testing.T) {
 	path := defaultDBPath()
 	home, err := os.UserHomeDir()
 	if err != nil {
-		// If we can't get home dir, the function falls back to "ctsnare.db".
+		// Without a home dir the function falls back to "ctsnare.db".
 		assert.Equal(t, "ctsnare.db", path)
 		return
 	}

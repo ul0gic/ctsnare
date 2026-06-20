@@ -31,7 +31,6 @@ func (d *DB) ClearSession(ctx context.Context, session string) error {
 func (d *DB) Stats(ctx context.Context) (domain.DBStats, error) {
 	var stats domain.DBStats
 
-	// Total count.
 	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM hits").Scan(&stats.TotalHits)
 	if err != nil {
 		return stats, fmt.Errorf("counting total hits: %w", err)
@@ -42,7 +41,6 @@ func (d *DB) Stats(ctx context.Context) (domain.DBStats, error) {
 		return stats, nil
 	}
 
-	// Count by severity.
 	stats.BySeverity = make(map[domain.Severity]int)
 	rows, err := d.db.QueryContext(ctx, "SELECT severity, COUNT(*) FROM hits GROUP BY severity")
 	if err != nil {
@@ -62,8 +60,6 @@ func (d *DB) Stats(ctx context.Context) (domain.DBStats, error) {
 		return stats, fmt.Errorf("iterating severity rows: %w", err)
 	}
 
-	// First and last hit timestamps. SQLite stores these as text strings,
-	// so we scan as strings and parse manually.
 	var firstStr, lastStr string
 	err = d.db.QueryRowContext(ctx,
 		"SELECT MIN(created_at), MAX(created_at) FROM hits",
@@ -74,7 +70,6 @@ func (d *DB) Stats(ctx context.Context) (domain.DBStats, error) {
 	stats.FirstHit = parseTimestamp(firstStr)
 	stats.LastHit = parseTimestamp(lastStr)
 
-	// Top 10 keywords by occurrence count.
 	stats.TopKeywords, err = d.topKeywords(ctx, 10)
 	if err != nil {
 		return stats, fmt.Errorf("querying top keywords: %w", err)
@@ -120,7 +115,6 @@ func topN(counts map[string]int, n int) []domain.KeywordCount {
 		count int
 	}
 
-	// Collect into slice for sorting.
 	items := make([]kv, 0, len(counts))
 	for k, v := range counts {
 		items = append(items, kv{k, v})
@@ -180,6 +174,4 @@ func parseTimestamp(s string) time.Time {
 	return time.Time{}
 }
 
-// Compile-time assertion to catch interface drift early. This verifies
-// that *DB satisfies domain.Store without creating an actual instance.
 var _ domain.Store = (*DB)(nil)

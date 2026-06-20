@@ -57,8 +57,6 @@ var StyleLiveDomain = lipgloss.NewStyle().
 var StyleBookmarked = lipgloss.NewStyle().
 	Foreground(colorBookmark)
 
-// --- Option B panel styles ---
-
 // colorAppName is used for the "ctsnare" brand name in the tab bar.
 var colorAppName = lipgloss.AdaptiveColor{Light: "#008888", Dark: "#00AAAA"}
 

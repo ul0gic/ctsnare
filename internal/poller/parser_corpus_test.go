@@ -14,14 +14,8 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// corpusFixture is a recorded CT-log entry stored under testdata/corpus. Each
-// fixture carries a real, byte-exact leaf_input captured from a public CT log
-// (provenance in source_log + index + captured_at) along with the domains and
-// signature algorithm the parser is expected to recover. Synthetic certs cannot
-// reproduce real-world DER structures (poison extensions, real issuer chains,
-// RSA precerts, IDN labels), so this corpus guards the parser against the class
-// of bug that caused ISSUE-004 — a parse failure that only manifests on real
-// precertificates.
+// corpusFixture is a byte-exact leaf_input recorded from a public CT log; real
+// DER (poison extensions, RSA precerts, IDN) catches the ISSUE-004 parse class synthetic certs miss.
 type corpusFixture struct {
 	Name            string   `json:"name"`
 	Description     string   `json:"description"`
@@ -37,8 +31,7 @@ type corpusFixture struct {
 	path string
 }
 
-// sigAlgByName maps the fixture's expected_sig_alg string to the x509 enum.
-// Only the algorithms present in the corpus are listed; an unmapped value is a
+// sigAlgByName maps expected_sig_alg to the x509 enum; an unmapped value is a
 // test error so a fixture can't silently skip the signature-algorithm check.
 var sigAlgByName = map[string]x509.SignatureAlgorithm{
 	"ECDSAWithSHA256":  x509.ECDSAWithSHA256,
@@ -54,9 +47,8 @@ var sigAlgByName = map[string]x509.SignatureAlgorithm{
 // corpusDir is the directory holding recorded fixtures relative to this package.
 const corpusDir = "testdata/corpus"
 
-// loadCorpus reads and decodes every *.json fixture under testdata/corpus.
-// It fails the test if the directory is empty so the harness can never silently
-// degrade to a no-op.
+// loadCorpus decodes every *.json fixture under testdata/corpus, failing if the
+// directory is empty so the harness can never silently degrade to a no-op.
 func loadCorpus(t *testing.T) []corpusFixture {
 	t.Helper()
 
@@ -77,10 +69,8 @@ func loadCorpus(t *testing.T) []corpusFixture {
 	return fixtures
 }
 
-// TestParseCorpus feeds each recorded real leaf_input through the production
-// ParseCertDomains and asserts the expected domains (as an order-independent
-// set) and, where recorded, the reconstructed signature algorithm. This is the
-// durable regression net for real CT-log structures.
+// TestParseCorpus asserts ParseCertDomains recovers the expected domain set and
+// signature algorithm from each recorded real leaf_input.
 func TestParseCorpus(t *testing.T) {
 	for _, f := range loadCorpus(t) {
 		t.Run(f.Name, func(t *testing.T) {
@@ -113,11 +103,8 @@ func TestParseCorpus(t *testing.T) {
 	}
 }
 
-// TestEntryTypePathsExercised is a coverage-erosion guard: it hard-fails if the
-// corpus does not cover BOTH RFC 6962 entry types — x509_entry (0) and
-// precert_entry (1). The precert path carried the ISSUE-004 bug and previously
-// had zero coverage; this guard ensures a future fixture deletion can't silently
-// re-open that gap. It also confirms each represented type actually parses.
+// TestEntryTypePathsExercised hard-fails unless the corpus covers both x509_entry
+// and precert_entry, so a fixture deletion can't silently re-open the ISSUE-004 gap.
 func TestEntryTypePathsExercised(t *testing.T) {
 	fixtures := loadCorpus(t)
 

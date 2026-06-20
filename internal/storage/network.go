@@ -8,29 +8,21 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// minClusterSize is the smallest number of distinct domains that makes a shared
-// IP interesting. A single domain on an IP is not a cluster; two or more sharing
-// one address is the weakest signal of common infrastructure worth surfacing.
+// minClusterSize is the smallest distinct-domain count worth surfacing as a
+// shared-IP cluster; one domain on an IP is not a cluster.
 const minClusterSize = 2
 
-// clusterSampleLimit caps how many member domains are previewed per cluster.
 const clusterSampleLimit = 5
 
-// cdnEdgeProviders are providers whose addresses are shared CDN edge nodes.
-// Co-hosting on these carries no clustering signal — thousands of unrelated
-// sites sit behind the same Cloudflare/Fastly/Akamai edge IP — so clusters whose
-// detected provider is one of these are excluded. Dedicated cloud hosts
-// (aws/gcp/azure/digitalocean) are NOT excluded: N flagged domains on one of
-// those is far more likely to be a single operator.
+// cdnEdgeProviders host thousands of unrelated sites per edge IP, so co-hosting
+// is no signal and these clusters are dropped; dedicated clouds are not excluded.
 var cdnEdgeProviders = map[string]bool{
 	"cloudflare": true,
 	"fastly":     true,
 	"akamai":     true,
 }
 
-// isCDNEdge reports whether the detected hosting provider is shared CDN edge
-// infrastructure. Matching is case-insensitive and substring-based so values
-// such as "Cloudflare, Inc." still match.
+// isCDNEdge matches case-insensitively by substring so "Cloudflare, Inc." hits.
 func isCDNEdge(provider string) bool {
 	p := strings.ToLower(strings.TrimSpace(provider))
 	if p == "" {
@@ -44,15 +36,8 @@ func isCDNEdge(provider string) bool {
 	return false
 }
 
-// NetworkClusters groups stored hits by shared resolved IP and returns one
-// aggregate per IP that hosts two or more distinct domains. Each row carries the
-// domain/live counts, detected provider, peak score, certificate time span, and
-// a bounded sample of the highest-scoring member domains. CDN-edge clusters are
-// excluded — co-hosting behind a shared edge is meaningless for attribution.
-//
-// The query uses json_each over resolved_ips to expand each hit's IP array into
-// one row per (domain, IP) pair, then aggregates by IP. All values are produced
-// by SQLite aggregates; nothing user-controlled is interpolated.
+// NetworkClusters returns one aggregate per IP hosting two or more distinct
+// domains, excluding CDN-edge IPs whose co-hosting is meaningless for attribution.
 func (d *DB) NetworkClusters(ctx context.Context) ([]domain.NetworkCluster, error) {
 	const query = `
 		SELECT
@@ -128,9 +113,8 @@ func (d *DB) NetworkClusters(ctx context.Context) ([]domain.NetworkCluster, erro
 	return clusters, nil
 }
 
-// clusterSampleDomains returns up to clusterSampleLimit member domains for a
-// shared IP, highest score first, for preview in the cluster row. The IP is
-// bound as a parameter.
+// clusterSampleDomains returns up to clusterSampleLimit member domains for an
+// IP, highest score first, for the cluster-row preview.
 func (d *DB) clusterSampleDomains(ctx context.Context, ip string) ([]string, error) {
 	const query = `
 		SELECT DISTINCT domain, score
@@ -159,7 +143,5 @@ func (d *DB) clusterSampleDomains(ctx context.Context, ip string) ([]string, err
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating cluster sample rows: %w", err)
 	}
-	// Order (score DESC, domain ASC) is fixed by the query — highest-scoring
-	// members preview first.
 	return domains, nil
 }

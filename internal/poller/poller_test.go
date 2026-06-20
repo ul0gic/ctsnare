@@ -19,9 +19,8 @@ import (
 // distinguish "not yet recorded" from an actual start index of 0.
 const sentinelStart int64 = -1
 
-// newBacktrackServer creates a mock CT log server that returns the given tree size
-// and tracks the start index of the first get-entries request. Initialize
-// firstStart to sentinelStart before passing it in.
+// newBacktrackServer mocks a CT log of treeSize, recording the first
+// get-entries start index into firstStart (initialize it to sentinelStart).
 func newBacktrackServer(t *testing.T, treeSize int64, firstStart *atomic.Int64) *httptest.Server {
 	t.Helper()
 
@@ -29,10 +28,9 @@ func newBacktrackServer(t *testing.T, treeSize int64, firstStart *atomic.Int64) 
 	mux.HandleFunc("/ct/v1/get-sth", func(w http.ResponseWriter, _ *http.Request) {
 		sth := SignedTreeHead{TreeSize: treeSize, Timestamp: time.Now().UnixMilli()}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sth) //nolint:errcheck
+		json.NewEncoder(w).Encode(sth) //nolint:errcheck // test HTTP handler, encode cannot fail on a fixed struct
 	})
 	mux.HandleFunc("/ct/v1/get-entries", func(w http.ResponseWriter, r *http.Request) {
-		// Record the first start parameter we see.
 		startParam := r.URL.Query().Get("start")
 		if startParam != "" {
 			val, err := json.Number(startParam).Int64()
@@ -42,7 +40,7 @@ func newBacktrackServer(t *testing.T, treeSize int64, firstStart *atomic.Int64) 
 		}
 		resp := ctlogEntriesResponse{Entries: []ctlogEntry{}}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck // test HTTP handler, encode cannot fail on a fixed struct
 	})
 
 	server := httptest.NewServer(mux)
@@ -71,7 +69,7 @@ func TestPoller_Backtrack_StartsAtOffset(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	// Wait for the poller to make at least one get-entries request.
 	deadline := time.After(3 * time.Second)
@@ -111,7 +109,7 @@ func TestPoller_Backtrack_Zero_StartsAtTip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	p.Run(ctx) //nolint:errcheck
+	p.Run(ctx) //nolint:errcheck // run blocks until ctx cancels; error is asserted separately
 
 	// With backtrack=0 and no new entries, the poller should never call get-entries.
 	assert.Equal(t, sentinelStart, firstStart.Load(),
@@ -139,7 +137,7 @@ func TestPoller_Backtrack_ExceedsTreeSize_ClampsToZero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go p.Run(ctx) //nolint:errcheck
+	go p.Run(ctx) //nolint:errcheck // fire-and-forget test goroutine, cancelled via ctx
 
 	// Wait for request.
 	deadline := time.After(3 * time.Second)

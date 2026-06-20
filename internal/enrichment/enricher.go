@@ -1,7 +1,5 @@
-// Package enrichment provides a pipeline for probing domains discovered
-// in Certificate Transparency logs. It resolves DNS records, detects
-// hosting providers, and checks HTTP liveness -- writing results back
-// to the store and publishing them on a channel for TUI consumption.
+// Package enrichment probes discovered domains for DNS, hosting provider, and
+// HTTP liveness, persisting results and publishing them for the TUI.
 package enrichment
 
 import (
@@ -26,16 +24,12 @@ type EnrichResult struct {
 	Error           error
 }
 
-// maxWorkers is the number of concurrent enrichment goroutines.
 const maxWorkers = 5
 
-// queueCapacity is the buffered channel size for pending enrichment requests.
 const queueCapacity = 1000
 
-// Enricher probes domains for DNS records and HTTP liveness, storing
-// results and publishing them for downstream consumers. It runs a
-// rate-limited worker pool to avoid overwhelming DNS resolvers and
-// target servers.
+// Enricher runs a rate-limited worker pool probing domains for DNS and HTTP
+// liveness, persisting results and publishing them downstream.
 type Enricher struct {
 	store      domain.Store
 	httpClient *http.Client
@@ -45,9 +39,7 @@ type Enricher struct {
 	wg         sync.WaitGroup
 }
 
-// NewEnricher creates a new Enricher that writes enrichment data to store
-// and publishes results on enrichCh. The caller is responsible for
-// starting the enrichment loop via Run.
+// NewEnricher builds an Enricher; the caller must start the loop via Run.
 func NewEnricher(store domain.Store, enrichCh chan<- EnrichResult) *Enricher {
 	return &Enricher{
 		store: store,
@@ -60,7 +52,7 @@ func NewEnricher(store domain.Store, enrichCh chan<- EnrichResult) *Enricher {
 				return nil
 			},
 		},
-		// Global rate: 5 tokens/sec burst, sustained 5 req/sec across all workers.
+		// Global limit shared across all workers: 5 req/sec, burst maxWorkers.
 		limiter:  rate.NewLimiter(rate.Limit(5), maxWorkers),
 		resultCh: enrichCh,
 		queue:    make(chan string, queueCapacity),
@@ -77,16 +69,14 @@ func (e *Enricher) Enqueue(domainName string) {
 	}
 }
 
-// Run starts the worker pool and blocks until ctx is cancelled. Workers
-// drain the queue, probe each domain for DNS and HTTP liveness, persist
-// results to the store, and send them on the result channel.
+// Run starts the worker pool and blocks until ctx is cancelled and all
+// workers have drained.
 func (e *Enricher) Run(ctx context.Context) error {
 	for i := 0; i < maxWorkers; i++ {
 		e.wg.Add(1)
 		go e.worker(ctx)
 	}
 
-	// Wait for all workers to finish after context cancellation.
 	<-ctx.Done()
 	e.wg.Wait()
 	return ctx.Err()
@@ -118,7 +108,6 @@ func (e *Enricher) worker(ctx context.Context) {
 func (e *Enricher) probe(ctx context.Context, domainName string) {
 	result := EnrichResult{Domain: domainName}
 
-	// DNS resolution.
 	ips, provider, err := ResolveDomain(ctx, domainName)
 	if err != nil {
 		slog.Debug("DNS resolution failed", "domain", domainName, "error", err)
@@ -126,7 +115,6 @@ func (e *Enricher) probe(ctx context.Context, domainName string) {
 	result.ResolvedIPs = ips
 	result.HostingProvider = provider
 
-	// HTTP liveness probe.
 	statusCode, isLive, err := ProbeLiveness(ctx, e.httpClient, domainName)
 	if err != nil {
 		slog.Debug("HTTP probe failed", "domain", domainName, "error", err)
@@ -134,13 +122,11 @@ func (e *Enricher) probe(ctx context.Context, domainName string) {
 	result.IsLive = isLive
 	result.HTTPStatus = statusCode
 
-	// Persist to store.
 	if err := e.store.UpdateEnrichment(ctx, domainName, result.IsLive, result.ResolvedIPs, result.HostingProvider, result.HTTPStatus); err != nil {
 		result.Error = err
 		slog.Warn("failed to persist enrichment", "domain", domainName, "error", err)
 	}
 
-	// Publish result for TUI consumption.
 	select {
 	case e.resultCh <- result:
 	case <-ctx.Done():

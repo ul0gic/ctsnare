@@ -93,7 +93,6 @@ func runProfilesShow(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Compute effective skip list and inject into profile for display.
 	p.SkipSuffixes = config.MergeSkipSuffixes(profile.GlobalSkipSuffixes, cfg.SkipOverrides)
 
 	PrintProfileDetail(p, cfg.SkipOverrides)
@@ -123,7 +122,6 @@ func PrintProfileDetail(p *domain.Profile, overrides config.SkipOverrides) {
 	fmt.Printf("  %s\n", strings.Join(p.SuspiciousTLDs, ", "))
 	fmt.Println()
 
-	// Build lookup sets for annotating skip suffixes.
 	additionsSet := make(map[string]struct{}, len(overrides.Additions))
 	for _, a := range overrides.Additions {
 		additionsSet[a] = struct{}{}
@@ -138,7 +136,6 @@ func PrintProfileDetail(p *domain.Profile, overrides config.SkipOverrides) {
 		}
 	}
 
-	// Show removed globals if any.
 	if len(overrides.Removals) > 0 {
 		fmt.Printf("\nRemoved from globals (will be scored): %d\n", len(overrides.Removals))
 		for _, r := range overrides.Removals {

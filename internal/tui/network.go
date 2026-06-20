@@ -12,15 +12,12 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// networkSampleMinWidth is the terminal width at or above which the network view
-// shows the sample-domains column. Below it the column is dropped so the IP,
-// counts, and provider stay readable.
+// networkSampleMinWidth is the width at which the sample-domains column appears;
+// below it the column is dropped so IP, counts, and provider stay readable.
 const networkSampleMinWidth = 100
 
-// NetworkModel lists infrastructure clusters — groups of flagged domains that
-// share a resolved IP. It mirrors ExplorerModel's structure: a focused table
-// loaded asynchronously from the store, with Enter drilling into the explorer
-// filtered to the selected cluster's member domains.
+// NetworkModel lists infrastructure clusters — flagged domains sharing a
+// resolved IP — with Enter drilling into the explorer filtered to that cluster.
 type NetworkModel struct {
 	table    table.Model
 	clusters []domain.NetworkCluster
@@ -59,12 +56,10 @@ func NewNetworkModel(store domain.Store) NetworkModel {
 	}
 }
 
-// Init returns the initial command for the network model.
 func (m NetworkModel) Init() tea.Cmd {
 	return m.loadClustersCmd()
 }
 
-// Update handles messages for the network model.
 func (m NetworkModel) Update(msg tea.Msg) (NetworkModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -148,7 +143,6 @@ func (m NetworkModel) reload() (NetworkModel, tea.Cmd) {
 	return m, m.loadClustersCmd()
 }
 
-// View renders the network model as a string.
 func (m NetworkModel) View() string {
 	if !m.ready {
 		return "Initializing network view..."
@@ -208,9 +202,8 @@ func (m NetworkModel) renderHelpBar() string {
 	return " " + help
 }
 
-// networkTableColumns returns the cluster table column set, optionally including
-// the sample-domains column. Column order must match the cell order in
-// clusterToRow.
+// networkTableColumns returns the cluster column set; column order must match
+// the cell order in clusterToRow.
 func networkTableColumns(showSamp bool) []table.Column {
 	cols := []table.Column{
 		{Title: "IP", Width: 17},

@@ -52,12 +52,10 @@ func NewFeedModel(profile string) FeedModel {
 	}
 }
 
-// Init returns the initial command for the feed model.
 func (m FeedModel) Init() tea.Cmd {
 	return tickDiscards()
 }
 
-// Update handles messages for the feed model.
 func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -73,7 +71,6 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		return m, nil
 
 	case discardTickMsg:
-		// Tick still fires to keep the TUI responsive; just re-subscribe.
 		return m, tickDiscards()
 
 	case StatsMsg:
@@ -81,15 +78,13 @@ func (m FeedModel) Update(msg tea.Msg) (FeedModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Toggle pause with 'p'.
 		if key.Matches(msg, m.keys.Pause) {
 			m.paused = !m.paused
 			return m, nil
 		}
 		if m.ready {
 			m.viewport, cmd = m.viewport.Update(msg)
-			// If user scrolled away from top, pause auto-scroll.
-			// Re-enable when they return to the top.
+			// Auto-scroll tracks the top; scrolling away from it pauses tracking.
 			m.autoScroll = m.viewport.YOffset == 0
 		}
 		return m, cmd
@@ -147,13 +142,11 @@ func (m FeedModel) addHit(hit domain.Hit) FeedModel {
 	return m
 }
 
-// View renders the feed model as a string.
 func (m FeedModel) View() string {
 	if !m.ready {
 		return "Initializing feed..."
 	}
 
-	// Tab bar with live/paused indicator and profile.
 	var liveTag string
 	switch {
 	case m.paused:
@@ -166,13 +159,8 @@ func (m FeedModel) View() string {
 	tabExtra := liveTag + " " + StyleHelpDesc.Render("("+m.profile+")") + " " + StyleHelpDesc.Render(formatClock())
 	tabBar := renderTabBar(viewFeed, m.width, tabExtra)
 
-	// Feed content wrapped in titled panel.
 	feedPanel := m.renderFeedPanel()
-
-	// Stats wrapped in titled panel.
 	statsPanel := m.renderStatsPanel()
-
-	// Help bar sits below all panels.
 	helpBar := m.renderHelpBar()
 
 	return lipgloss.JoinVertical(
@@ -204,11 +192,9 @@ func (m FeedModel) renderFeedPanel() string {
 	hasSidebar := m.width >= keywordSidebarMin && len(m.topKeywords) > 0
 
 	if hasSidebar {
-		// Feed panel takes remaining width after sidebar.
 		feedPanelWidth := m.width - sidebarPanelWidth
 		feedBox := renderTitledPanel("Live Feed", feedContent, feedPanelWidth)
 
-		// Sidebar panel.
 		sidebarContent := m.renderSidebarContent()
 		sidebarBox := renderTitledPanel("Top Keywords", sidebarContent, sidebarPanelWidth)
 
@@ -233,7 +219,6 @@ func (m FeedModel) renderStatsPanel() string {
 
 	statsLine := " " + scanned + hits + rate + hpm + logs
 
-	// Add extras at wider widths.
 	if m.width >= 100 {
 		low := StyleHelpDesc.Render("  Low ") + StyleHelpDesc.Render(formatNumber(m.lowCount))
 		discarded := StyleHelpDesc.Render("  Discarded ") + StyleHelpDesc.Render(formatNumber(m.discardCount))
@@ -261,7 +246,6 @@ func (m FeedModel) renderHits() string {
 
 	var b strings.Builder
 
-	// Column header row.
 	b.WriteString(m.renderHeaderLine())
 	b.WriteByte('\n')
 
@@ -306,7 +290,6 @@ func (m FeedModel) renderHitLine(hit domain.Hit) string {
 	sevTag := sevStyle.Render(fmt.Sprintf(" %-4s", sev))
 	score := sevStyle.Render(fmt.Sprintf("%2d", hit.Score))
 
-	// Responsive domain width: use available space.
 	domWidth := 35
 	if m.width >= 100 {
 		domWidth = 38
@@ -321,7 +304,6 @@ func (m FeedModel) renderHitLine(hit domain.Hit) string {
 
 	line := " " + ts + " " + sevTag + " " + score + " " + domainRendered
 
-	// Responsive columns: keywords at 80+, issuer at 100+.
 	if m.width >= 80 {
 		kw := strings.Join(hit.Keywords, ",")
 		if kw == "" {

@@ -384,8 +384,6 @@ func TestRootHelpShowsSubcommands(t *testing.T) {
 	assert.Contains(t, output, "skip")
 }
 
-// --- Phase 7.3 Integration Tests ---
-
 func TestBookmarkWorkflow(t *testing.T) {
 	resetFlags()
 	dbFile, store := setupTestDB(t)
@@ -607,8 +605,6 @@ func TestDeleteHitsBatch(t *testing.T) {
 	assert.Contains(t, output, "secure-paypal-login.top")
 	assert.Contains(t, output, "mywalletcrypto.com")
 }
-
-// --- Phase 8 Skip Suffix Integration Tests ---
 
 func TestSkipList_ShowsGlobals(t *testing.T) {
 	resetFlags()

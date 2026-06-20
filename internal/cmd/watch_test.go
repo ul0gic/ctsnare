@@ -25,7 +25,7 @@ func TestAggregatePollStats_SumsAndDerivesRates(t *testing.T) {
 }
 
 func TestAggregatePollStats_HitsPerMinPositiveAfterHits(t *testing.T) {
-	// BUG-002 regression: HitsPerMin must be live, not a hardcoded zero.
+	// HitsPerMin must be computed live, not a hardcoded zero.
 	perLog := map[string]poller.PollStats{
 		"Argon": {LogName: "Argon", CertsScanned: 100, HitsFound: 3},
 	}

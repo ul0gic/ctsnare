@@ -2,28 +2,16 @@ package scoring
 
 import "strings"
 
-// typosquatPoints is the bonus for a domain label that is a near-miss of a brand
-// keyword (one or two edits away) without being an exact substring match.
 const typosquatPoints = 3
 
-// Edit-distance acceptance windows. Short brands tolerate only a single edit to
-// keep false positives down ("paypol" -> paypal, but not "papal"); longer brands
-// can absorb two edits and still be an obvious squat ("anthropics" patterns).
+// Short brands tolerate one edit to limit false positives; longer brands absorb two.
 const (
-	typoMinLenDist1 = 5 // brand length >= 5 accepts distance 1
-	typoMinLenDist2 = 8 // brand length >= 8 accepts distance <= 2
+	typoMinLenDist1 = 5
+	typoMinLenDist2 = 8
 )
 
-// scoreTyposquat checks each registered-domain label against the brand keywords
-// for a Damerau-Levenshtein near match. A label that is distance 1 from a brand
-// (brand length >= 5) or distance <= 2 (brand length >= 8) — and is not already
-// an exact substring of the domain — scores typosquatPoints and is reported as a
-// matched keyword with a "~" prefix so the user sees it was fuzzy.
-//
-// This runs on every domain from the CT firehose, so it is allocation-light: it
-// scans only the dot-separated labels of the registered part, applies a cheap
-// length-window pre-filter before computing any distance, and short-circuits as
-// soon as a brand produces a hit.
+// scoreTyposquat reports brand keywords within an edit-distance window of a
+// registered label (not already an exact substring), prefixed "~" to flag fuzziness.
 func scoreTyposquat(domainName string, brand []string) (matched []string) {
 	if len(brand) == 0 {
 		return nil
@@ -34,11 +22,10 @@ func scoreTyposquat(domainName string, brand []string) (matched []string) {
 
 	for _, kw := range brand {
 		lkw := strings.ToLower(kw)
-		// Skip brands too short to fuzzy-match safely.
 		if len(lkw) < typoMinLenDist1 {
 			continue
 		}
-		// An exact substring is a literal keyword hit, already scored elsewhere.
+		// Exact substring is a literal keyword hit, already scored elsewhere.
 		if strings.Contains(lower, lkw) {
 			continue
 		}
@@ -55,8 +42,6 @@ func scoreTyposquat(domainName string, brand []string) (matched []string) {
 	return matched
 }
 
-// allowedDistance returns the maximum edit distance accepted for a brand of the
-// given length, or 0 if the brand is too short to fuzzy-match.
 func allowedDistance(brandLen int) int {
 	switch {
 	case brandLen >= typoMinLenDist2:
@@ -68,9 +53,7 @@ func allowedDistance(brandLen int) int {
 	}
 }
 
-// labelNearBrand reports whether any dot-separated label of registered is within
-// maxDist Damerau-Levenshtein edits of brand. A length-window pre-filter rejects
-// labels that cannot possibly be within maxDist before the O(n*m) computation.
+// labelNearBrand reports whether any registered label is within maxDist edits of brand.
 func labelNearBrand(registered, brand string, maxDist int) bool {
 	bl := len(brand)
 	for _, label := range strings.Split(registered, ".") {
@@ -78,7 +61,7 @@ func labelNearBrand(registered, brand string, maxDist int) bool {
 			continue
 		}
 		if abs(len(label)-bl) > maxDist {
-			continue // length window: too different to be within maxDist
+			continue
 		}
 		if damerauLevenshtein(label, brand, maxDist) <= maxDist {
 			return true
@@ -87,11 +70,8 @@ func labelNearBrand(registered, brand string, maxDist int) bool {
 	return false
 }
 
-// damerauLevenshtein computes the optimal-string-alignment (restricted
-// Damerau-Levenshtein) distance between a and b, counting insertions, deletions,
-// substitutions, and adjacent transpositions. It bails out early, returning
-// maxDist+1, once the best achievable distance on a row exceeds maxDist. Two
-// rolling rows keep allocation to a single slice.
+// damerauLevenshtein returns the optimal-string-alignment distance between a and b,
+// bailing out with maxDist+1 once a row's best exceeds maxDist.
 func damerauLevenshtein(a, b string, maxDist int) int {
 	la, lb := len(a), len(b)
 	if la == 0 {
@@ -101,7 +81,7 @@ func damerauLevenshtein(a, b string, maxDist int) int {
 		return la
 	}
 
-	// prev2 = row i-2, prev = row i-1, cur = row i. One backing slice, three views.
+	// prev2 = row i-2, prev = row i-1, cur = row i: one backing slice, three views.
 	buf := make([]int, 3*(lb+1))
 	prev2 := buf[:lb+1]
 	prev := buf[lb+1 : 2*(lb+1)]
@@ -129,16 +109,12 @@ func damerauLevenshtein(a, b string, maxDist int) int {
 	return prev[lb]
 }
 
-// dlCell computes one cell of the Damerau-Levenshtein matrix given the two
-// previous rows. Split out of damerauLevenshtein to keep that function's
-// cognitive complexity in check.
 func dlCell(a, b string, i, j int, prev2, prev, cur []int) int {
 	cost := 1
 	if a[i-1] == b[j-1] {
 		cost = 0
 	}
 	best := min3(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-	// Adjacent transposition.
 	if i > 1 && j > 1 && a[i-1] == b[j-2] && a[i-2] == b[j-1] {
 		if t := prev2[j-2] + 1; t < best {
 			best = t

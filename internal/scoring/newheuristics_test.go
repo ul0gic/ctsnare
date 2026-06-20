@@ -7,9 +7,8 @@ import (
 	"github.com/ul0gic/ctsnare/internal/config"
 )
 
-// TestTLDTierConstantsMatchConfig asserts the local scoring constants stay in
-// lockstep with the config package's authoritative tier weights, so the two
-// definitions cannot silently diverge.
+// TestTLDTierConstantsMatchConfig asserts the local tier weights stay in
+// lockstep with the config package so the two definitions cannot silently diverge.
 func TestTLDTierConstantsMatchConfig(t *testing.T) {
 	assert.Equal(t, config.BurnerTLDPoints, tldBurnerPoints)
 	assert.Equal(t, config.CheapTLDPoints, tldCheapPoints)

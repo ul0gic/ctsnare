@@ -27,12 +27,8 @@ type Manager struct {
 	wg           sync.WaitGroup
 }
 
-// NewManager creates a poller manager that will launch one poller per CT log
-// from the config. The backtrack parameter controls how many entries behind
-// the current log tip each poller starts at. When trackDomains is non-empty,
-// every poller runs in domain-tracker mode (storing all matching certificates
-// unconditionally) instead of keyword-scoring mode. The session tag, if
-// non-empty, is recorded on every stored hit for later --session querying.
+// NewManager creates a manager that launches one poller per configured CT log.
+// Non-empty trackDomains switches every poller to tracker mode; see NewPoller.
 func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, profile *domain.Profile, backtrack int64, minScore int, session string, trackDomains []string) *Manager {
 	return &Manager{
 		cfg:          cfg,
@@ -46,11 +42,8 @@ func NewManager(cfg *config.Config, scorer domain.Scorer, store domain.Store, pr
 	}
 }
 
-// Start launches a polling goroutine for each CT log in the config. All
-// pollers share the provided hit, stats, and discard channels. The
-// discardChan receives domain names that scored zero; it may be nil to
-// skip discard reporting. Returns immediately; pollers run until the
-// context is cancelled.
+// Start launches one polling goroutine per CT log, returning immediately;
+// pollers run until ctx is cancelled. discardChan may be nil to skip discards.
 func (m *Manager) Start(ctx context.Context, hitChan chan<- domain.Hit, statsChan chan<- PollStats, discardChan chan<- string) error {
 	ctx, m.cancel = context.WithCancel(ctx)
 

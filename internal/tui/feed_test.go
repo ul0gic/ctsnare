@@ -205,8 +205,6 @@ func TestFeedModel_MinimumContentHeight(t *testing.T) {
 	assert.True(t, m.ready)
 }
 
-// --- Helper function tests ---
-
 func TestPrependHit_Basic(t *testing.T) {
 	hits := []domain.Hit{
 		makeHit("existing.com", 2, domain.SeverityLow),

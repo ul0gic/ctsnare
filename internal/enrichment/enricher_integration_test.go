@@ -26,13 +26,13 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	store := newMockStore()
 	resultCh := make(chan EnrichResult, 10)
 	enricher := NewEnricher(store, resultCh)
-	// Point the enricher's HTTP client at our test server.
+	// Point the enricher's HTTP client at the test server.
 	enricher.httpClient = server.Client()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Enqueue 127.0.0.1 which the test server resolves to.
 	enricher.Enqueue("127.0.0.1")
@@ -67,7 +67,7 @@ func TestIntegration_DeadDomain_Pipeline(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	dead := "this-domain-absolutely-does-not-exist-9999.invalid"
 	enricher.Enqueue(dead)
@@ -105,7 +105,7 @@ func TestIntegration_MultipleDomains_Pipeline(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	const count = 5
 	for i := 0; i < count; i++ {
@@ -146,7 +146,7 @@ func TestIntegration_RateLimiting_EndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Enqueue 15 domains. With 5 req/sec rate, processing 15 should take
 	// at least ~2 seconds after the initial burst of 5.
@@ -190,7 +190,7 @@ func TestIntegration_GracefulShutdown_DrainsQueue(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		enricher.Run(ctx) //nolint:errcheck
+		enricher.Run(ctx) //nolint:errcheck // returns only ctx.Err() after cancel; not asserted
 		close(done)
 	}()
 
@@ -224,7 +224,7 @@ func TestIntegration_GracefulShutdown_EmptyQueue(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		enricher.Run(ctx) //nolint:errcheck
+		enricher.Run(ctx) //nolint:errcheck // returns only ctx.Err() after cancel; not asserted
 		close(done)
 	}()
 
@@ -249,13 +249,13 @@ func TestIntegration_WorkerPoolSize(t *testing.T) {
 	resultCh := make(chan EnrichResult, 50)
 	enricher := NewEnricher(store, resultCh)
 	enricher.httpClient = &http.Client{Timeout: 1 * time.Second}
-	// Use a generous rate limit so we measure concurrency, not rate.
+	// Generous rate limit so the test measures concurrency, not throttling.
 	enricher.limiter = rate.NewLimiter(rate.Limit(100), maxWorkers)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go enricher.Run(ctx) //nolint:errcheck
+	go enricher.Run(ctx) //nolint:errcheck // background goroutine; only returns ctx.Err() on cancel
 
 	// Enqueue maxWorkers domains. With a worker pool, they should all
 	// be picked up and start processing nearly simultaneously.

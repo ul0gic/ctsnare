@@ -93,7 +93,6 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid --since value %q: %w", querySince, err)
 	}
 
-	// Check if the database file exists before attempting to open it.
 	if _, statErr := os.Stat(cfg.DBPath); os.IsNotExist(statErr) {
 		fmt.Fprintln(os.Stderr, "No database found. Run 'ctsnare watch' first to start collecting hits.")
 		return nil
@@ -124,9 +123,8 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 		SortDir:  "DESC",
 		LiveOnly: queryLiveOnly,
 	}
-	// Only apply the bookmark filter when --bookmarked was explicitly set.
-	// --bookmarked / --bookmarked=true → only bookmarked; --bookmarked=false →
-	// only non-bookmarked; flag absent → no bookmark filter.
+	// Apply the bookmark filter only when set: absent means no filter, whereas
+	// a false pointer would wrongly select only non-bookmarked hits.
 	if cmd.Flags().Changed("bookmarked") {
 		filter.Bookmarked = &queryBookmarked
 	}
@@ -139,9 +137,8 @@ func runQuery(cmd *cobra.Command, _ []string) error {
 	return WriteQueryOutput(hits, queryFormat)
 }
 
-// parseSince parses a duration string, additionally accepting a "d" (day)
-// suffix that time.ParseDuration lacks (e.g. "7d" → 168h). An empty string
-// means no time filter.
+// parseSince parses a duration, also accepting the "d" (day) suffix that
+// time.ParseDuration lacks (e.g. "7d" → 168h); empty means no time filter.
 func parseSince(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil

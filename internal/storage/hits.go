@@ -11,11 +11,9 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domainutil"
 )
 
-// timestampFormat is the ISO 8601 format used for storing timestamps in SQLite.
 const timestampFormat = "2006-01-02T15:04:05Z"
 
 // UpsertHit inserts or replaces a hit keyed on domain (deduplication).
-// Keywords, SANDomains, and ResolvedIPs are stored as JSON arrays.
 func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 	cols, err := marshalHitColumns(hit)
 	if err != nil {
@@ -76,8 +74,7 @@ func (d *DB) UpsertHit(ctx context.Context, hit domain.Hit) error {
 	return nil
 }
 
-// hitColumns holds the serialized scalar forms of a Hit's compound fields,
-// shared by InsertHit and UpsertHit to avoid duplicating the marshaling logic.
+// hitColumns holds the serialized scalar forms of a Hit's compound fields.
 type hitColumns struct {
 	keywords      string
 	signals       string
@@ -88,8 +85,6 @@ type hitColumns struct {
 	liveCheckedAt interface{}
 }
 
-// marshalHitColumns serializes a Hit's JSON-array and boolean fields into the
-// scalar forms SQLite stores.
 func marshalHitColumns(hit domain.Hit) (hitColumns, error) {
 	keywords, err := json.Marshal(hit.Keywords)
 	if err != nil {
@@ -172,11 +167,9 @@ func (d *DB) InsertHit(ctx context.Context, hit domain.Hit) error {
 	return nil
 }
 
-// buildWhereClause translates the filter fields into parameterized SQL
-// predicates and their bound arguments. All values are bound via placeholders
-// to prevent SQL injection.
+// buildWhereClause translates filter fields into parameterized SQL predicates;
+// all values are bound via placeholders, never interpolated.
 func buildWhereClause(filter domain.QueryFilter) (where []string, args []interface{}) {
-	// Simple equality filters keyed on a non-empty string value.
 	for _, f := range []struct {
 		predicate string
 		value     string
@@ -204,10 +197,8 @@ func buildWhereClause(filter domain.QueryFilter) (where []string, args []interfa
 	return where, args
 }
 
-// appendMatchPredicates appends the substring/range/domain-shape predicates
-// (keyword, score floor, time window, TLD suffix, domain-tracking) to the given
-// where/args slices and returns the extended slices. Splitting these out of
-// buildWhereClause keeps each function within the cyclomatic-complexity budget.
+// appendMatchPredicates appends the substring/range/domain-shape predicates;
+// split from buildWhereClause to stay within the cyclomatic-complexity budget.
 func appendMatchPredicates(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
 	if filter.Keyword != "" {
 		where = append(where, "keywords LIKE ?")
@@ -241,10 +232,8 @@ func appendMatchPredicates(filter domain.QueryFilter, where []string, args []int
 		args = append(args, "%"+filter.Provider+"%")
 	}
 	if filter.Brand != "" {
-		// A brand matches as an exact ("name"), typosquat ("~name"), or
-		// homoglyph ("*name") entry in the keywords JSON array. Each variant is
-		// matched as a quoted JSON element so it cannot partially match a longer
-		// keyword. The patterns are bound as parameters, never interpolated.
+		// Quoted JSON element so a brand can't partially match a longer keyword;
+		// matches exact ("name"), typosquat ("~name"), and homoglyph ("*name").
 		where = append(where, `(keywords LIKE ? OR keywords LIKE ? OR keywords LIKE ?)`)
 		args = append(args,
 			`%"`+filter.Brand+`"%`,
@@ -260,11 +249,8 @@ func appendMatchPredicates(filter domain.QueryFilter, where []string, args []int
 	return where, args
 }
 
-// appendSharedIPPredicate appends a json_each EXISTS predicate that matches rows
-// whose resolved_ips JSON array contains the exact IP. json_each expands the
-// array into one row per element; the predicate is true when any element equals
-// the bound value. Exact comparison (not LIKE) means a partial address cannot
-// match a longer one. The value is bound as a parameter, never interpolated.
+// appendSharedIPPredicate matches rows whose resolved_ips array contains the
+// exact IP; exact json_each comparison (not LIKE) stops partial-address matches.
 func appendSharedIPPredicate(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
 	if filter.SharedIP == "" {
 		return where, args
@@ -274,10 +260,8 @@ func appendSharedIPPredicate(filter domain.QueryFilter, where []string, args []i
 	return where, args
 }
 
-// appendSignalPredicates appends one predicate per requested signal key (AND
-// semantics): a row matches only when its signals JSON array contains every
-// listed key. Each key is matched as a quoted JSON element ("key") so it cannot
-// partially match another key. Values are bound as parameters.
+// appendSignalPredicates requires every listed signal key (AND semantics);
+// quoted JSON element ("key") so a key can't partially match another.
 func appendSignalPredicates(filter domain.QueryFilter, where []string, args []interface{}) ([]string, []interface{}) {
 	for _, sig := range filter.Signals {
 		if sig == "" {
@@ -289,14 +273,8 @@ func appendSignalPredicates(filter domain.QueryFilter, where []string, args []in
 	return where, args
 }
 
-// domainTrackPredicate builds the apex-plus-subdomain SQL predicate for a
-// domain-tracking filter, mirroring domainutil.MatchesTrackTarget: a row matches
-// when its domain equals the normalized target OR is a subdomain of it. It
-// returns an empty predicate when the target normalizes to "" (no filter).
-//
-// The "." in the LIKE pattern is literal; domain names contain no LIKE wildcards
-// (% or _), and both operands are bound as parameters by the caller — never
-// concatenated into the SQL string.
+// domainTrackPredicate mirrors domainutil.MatchesTrackTarget (apex plus
+// subdomains); empty predicate when the target normalizes to "". Operands bound by caller.
 func domainTrackPredicate(domainFilter string) (predicate, target string) {
 	target = domainutil.NormalizeTrackTarget(domainFilter)
 	if target == "" {
@@ -305,9 +283,7 @@ func domainTrackPredicate(domainFilter string) (predicate, target string) {
 	return "(LOWER(domain) = ? OR LOWER(domain) LIKE ?)", target
 }
 
-// bookmarkedPredicate maps the tri-state bookmark filter to a SQL predicate.
-// A nil filter yields no predicate; true matches bookmarked rows, false matches
-// non-bookmarked rows.
+// bookmarkedPredicate maps the tri-state filter to SQL; nil yields no predicate.
 func bookmarkedPredicate(bookmarked *bool) string {
 	if bookmarked == nil {
 		return ""
@@ -318,10 +294,8 @@ func bookmarkedPredicate(bookmarked *bool) string {
 	return "bookmarked = 0"
 }
 
-// severityRankExpr ranks the severity TEXT column by threat level rather than
-// lexically. HIGH > MED > LOW, so a DESC sort surfaces the highest-threat hits
-// first. The expression is a constant — no user data is interpolated — so it
-// preserves the injection-safe posture of orderClause.
+// severityRankExpr ranks severity by threat (HIGH>MED>LOW), not lexically.
+// Constant expression — no user data — so orderClause stays injection-safe.
 const severityRankExpr = "CASE severity WHEN 'HIGH' THEN 3 WHEN 'MED' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END"
 
 // orderClause builds the ORDER BY clause from the filter's sort settings.
@@ -334,16 +308,12 @@ func orderClause(filter domain.QueryFilter) string {
 	if strings.EqualFold(filter.SortDir, "ASC") {
 		sortDir = "ASC"
 	}
-	// Severity is a TEXT column whose values (HIGH/MED/LOW) have no natural
-	// lexical threat order; rank them numerically instead.
 	sortExpr := sortBy
 	if sortBy == "severity" {
 		sortExpr = severityRankExpr
 	}
-	// SECURITY: sortBy is sanitized through sanitizeSortColumn() allowlist and
-	// the severity case maps to a constant expression; sortDir is limited to
-	// "ASC"/"DESC" by the check above. Both are safe for direct interpolation.
-	// ORDER BY does not support parameterized placeholders.
+	// Injection-safe interpolation: sortBy is allowlisted via sanitizeSortColumn
+	// and sortDir is fixed ASC/DESC; ORDER BY can't take placeholders.
 	return fmt.Sprintf(" ORDER BY %s %s", sortExpr, sortDir)
 }
 
@@ -357,11 +327,8 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 
-	// orderClause interpolates only an allowlisted sort column and a fixed
-	// ASC/DESC direction; no user data reaches the query string here.
 	query += orderClause(filter) //nolint:gosec // ORDER BY built from allowlisted column + fixed direction
 
-	// Pagination.
 	if filter.Limit > 0 {
 		query += " LIMIT ?"
 		args = append(args, filter.Limit)
@@ -392,9 +359,8 @@ func (d *DB) QueryHits(ctx context.Context, filter domain.QueryFilter) ([]domain
 	return hits, nil
 }
 
-// scanHit reads a single row from a rows cursor into a domain.Hit.
-// SQLite returns timestamps as strings and booleans as integers,
-// so we scan and convert them manually.
+// scanHit reads one row into a domain.Hit, converting SQLite's string
+// timestamps and integer booleans to their Go types.
 func scanHit(rows interface {
 	Scan(dest ...interface{}) error
 },
@@ -497,7 +463,6 @@ func sanitizeSortColumn(col string) string {
 	return "created_at"
 }
 
-// SetBookmark sets or clears the bookmark flag on a hit identified by domain.
 func (d *DB) SetBookmark(ctx context.Context, domain string, bookmarked bool) error {
 	val := 0
 	if bookmarked {
@@ -510,7 +475,6 @@ func (d *DB) SetBookmark(ctx context.Context, domain string, bookmarked bool) er
 	return nil
 }
 
-// DeleteHit removes a single hit identified by domain.
 func (d *DB) DeleteHit(ctx context.Context, domain string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM hits WHERE domain = ?", domain)
 	if err != nil {
@@ -519,8 +483,7 @@ func (d *DB) DeleteHit(ctx context.Context, domain string) error {
 	return nil
 }
 
-// DeleteHits removes multiple hits identified by their domains.
-// Uses a transaction with batched parameter binding for atomicity.
+// DeleteHits removes multiple hits atomically in one transaction.
 func (d *DB) DeleteHits(ctx context.Context, domains []string) error {
 	if len(domains) == 0 {
 		return nil
@@ -552,7 +515,6 @@ func (d *DB) DeleteHits(ctx context.Context, domains []string) error {
 	return nil
 }
 
-// CountByBaseDomain returns the number of hits sharing the given base domain.
 func (d *DB) CountByBaseDomain(ctx context.Context, baseDomain string) (int, error) {
 	var count int
 	err := d.db.QueryRowContext(ctx,
@@ -564,13 +526,11 @@ func (d *DB) CountByBaseDomain(ctx context.Context, baseDomain string) (int, err
 	return count, nil
 }
 
-// QueryHitsByBaseDomain returns all hits whose base_domain matches the given value.
 func (d *DB) QueryHitsByBaseDomain(ctx context.Context, baseDomain string) ([]domain.Hit, error) {
 	return d.QueryHits(ctx, domain.QueryFilter{BaseDomain: baseDomain})
 }
 
-// UpdateEnrichment updates the enrichment fields on a hit identified by domain.
-// Serializes resolvedIPs as a JSON array.
+// UpdateEnrichment writes the enrichment fields on the hit identified by domain.
 func (d *DB) UpdateEnrichment(ctx context.Context, domain string, isLive bool, resolvedIPs []string, hostingProvider string, httpStatus int) error {
 	ipsJSON, err := json.Marshal(resolvedIPs)
 	if err != nil {

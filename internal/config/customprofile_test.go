@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLoad_CustomProfile_SnakeCaseKeysBind is the BUG-008 regression test: a
-// custom profile defined with the README-documented snake_case keys
-// (suspicious_tlds, skip_suffixes) must bind to the corresponding struct fields.
-// Before adding explicit toml tags, BurntSushi mapped keys case-insensitively
-// but did not strip underscores, so these keys were silently dropped.
+// TestLoad_CustomProfile_SnakeCaseKeysBind is the BUG-008 regression: snake_case
+// profile keys must bind; without explicit toml tags they were silently dropped.
 func TestLoad_CustomProfile_SnakeCaseKeysBind(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")

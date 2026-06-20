@@ -206,10 +206,8 @@ func TestLoad_BackwardCompatibility_OldSkipSuffixesKey(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
 
-	// Old config format with deprecated skip_suffixes key.
-	// BurntSushi/toml does NOT ignore unknown keys by default when
-	// unmarshaling into a struct. But since we use Unmarshal on a
-	// pre-populated struct, unknown keys are silently dropped.
+	// Deprecated skip_suffixes key: Unmarshal into a pre-populated struct
+	// silently drops unknown keys.
 	content := `
 default_profile = "all"
 skip_suffixes = ["example.com"]

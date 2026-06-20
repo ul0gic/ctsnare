@@ -111,9 +111,8 @@ func TestMergeSkipSuffixes_RemoveAllGlobals(t *testing.T) {
 }
 
 func TestMergeSkipSuffixes_RemoveGlobalThenAddItBack(t *testing.T) {
-	// If a domain is in both removals and additions, the removal wins
-	// for globals, but the addition is also present -- so it ends up
-	// in the result via additions.
+	// A domain in both removals and additions is dropped from globals but
+	// re-enters the result via additions.
 	globals := []string{"a.com", "b.com"}
 	overrides := SkipOverrides{
 		Additions: []string{"a.com"},
