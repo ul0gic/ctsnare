@@ -93,7 +93,14 @@ func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling dummy signature: %w", err)
 	}
 
-	inner := make([]byte, 0, len(tbs)+len(algBytes)+len(sigBytes))
+	// Bound the allocation at the use site so static analysis sees the cap; tbs
+	// is already limited by readOpaqueDER, algBytes/sigBytes are tiny.
+	allocSize := len(tbs) + len(algBytes) + len(sigBytes)
+	if allocSize > 2*maxCertDERBytes {
+		return nil, fmt.Errorf("certificate wrapper too large: %d bytes", allocSize)
+	}
+
+	inner := make([]byte, 0, allocSize)
 	inner = append(inner, tbs...)
 	inner = append(inner, algBytes...)
 	inner = append(inner, sigBytes...)
