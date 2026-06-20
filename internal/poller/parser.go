@@ -12,10 +12,12 @@ import (
 	"github.com/ul0gic/ctsnare/internal/domain"
 )
 
-// ParseCertDomains extracts all unique domain names from a CT log entry.
-// It decodes the MerkleTreeLeaf structure, parses the x509 certificate,
-// and returns the Subject CN plus all DNS SANs. Parse errors are logged
-// and returned; they should be handled gracefully (skip entry, don't crash).
+// maxCertDERBytes caps opaque DER blobs (RFC 6962 24-bit length prefix allows
+// ~16 MB) so a hostile length prefix cannot drive an outsized allocation.
+const maxCertDERBytes = 1 << 19 // 512 KiB
+
+// ParseCertDomains returns the Subject CN plus all DNS SANs from a CT log entry.
+// Callers should skip the entry on error, not crash.
 func ParseCertDomains(entry domain.CTLogEntry) ([]string, *x509.Certificate, error) {
 	certBytes, err := extractCertFromLeaf(entry.LeafInput)
 	if err != nil {
@@ -30,28 +32,8 @@ func ParseCertDomains(entry domain.CTLogEntry) ([]string, *x509.Certificate, err
 	return uniqueDomains(cert), cert, nil
 }
 
-// extractCertFromLeaf decodes the MerkleTreeLeaf structure (RFC 6962 section 3.4)
-// and extracts the DER-encoded certificate.
-//
-// MerkleTreeLeaf structure:
-//
-//	struct {
-//	    Version version;                      // 1 byte (0 = v1)
-//	    MerkleLeafType leaf_type;             // 1 byte (0 = timestamped_entry)
-//	    select (leaf_type) {
-//	        case timestamped_entry: TimestampedEntry;
-//	    }
-//	} MerkleTreeLeaf;
-//
-//	struct {
-//	    uint64 timestamp;                     // 8 bytes
-//	    LogEntryType entry_type;              // 2 bytes (0 = x509_entry, 1 = precert_entry)
-//	    select (entry_type) {
-//	        case x509_entry: ASN1Cert;        // opaque<1..2^24-1>
-//	        case precert_entry: PreCert;
-//	    }
-//	    CtExtensions extensions;
-//	} TimestampedEntry;
+// extractCertFromLeaf decodes a MerkleTreeLeaf (RFC 6962 §3.4) and returns the
+// DER-encoded certificate. Byte offsets below follow that wire layout.
 func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 	if len(leafInput) < 15 {
 		return nil, fmt.Errorf("leaf input too short: %d bytes", len(leafInput))
@@ -62,33 +44,17 @@ func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 
 	switch entryType {
 	case 0: // x509_entry
-		// ASN1Cert is an opaque<1..2^24-1>: 3-byte length prefix + DER cert.
-		if len(leafInput) < 15 {
-			return nil, errors.New("x509_entry too short")
-		}
-		certLen := int(leafInput[12])<<16 | int(leafInput[13])<<8 | int(leafInput[14])
-		if len(leafInput) < 15+certLen {
-			return nil, fmt.Errorf("x509_entry cert truncated: need %d, have %d", 15+certLen, len(leafInput))
-		}
-		return leafInput[15 : 15+certLen], nil
+		return readOpaqueDER(leafInput, 12, "x509_entry cert")
 
 	case 1: // precert_entry
-		// PreCert: issuer_key_hash (32 bytes) + TBSCertificate opaque<1..2^24-1>.
-		offset := 12
-		if len(leafInput) < offset+32+3 {
+		// PreCert is issuer_key_hash (32 bytes) + TBSCertificate opaque.
+		if len(leafInput) < 12+32+3 {
 			return nil, errors.New("precert_entry too short")
 		}
-		offset += 32 // skip issuer_key_hash
-		tbsLen := int(leafInput[offset])<<16 | int(leafInput[offset+1])<<8 | int(leafInput[offset+2])
-		offset += 3
-		if len(leafInput) < offset+tbsLen {
-			return nil, errors.New("precert TBS truncated")
+		tbsBytes, err := readOpaqueDER(leafInput, 12+32, "precert TBS")
+		if err != nil {
+			return nil, err
 		}
-		tbsBytes := leafInput[offset : offset+tbsLen]
-
-		// Try to parse the TBSCertificate directly.
-		// Pre-certificates contain a TBSCertificate without the signature.
-		// We wrap it in a minimal Certificate structure for x509 parsing.
 		return wrapTBSCertificate(tbsBytes)
 
 	default:
@@ -96,29 +62,37 @@ func extractCertFromLeaf(leafInput []byte) ([]byte, error) {
 	}
 }
 
-// wrapTBSCertificate wraps a raw TBSCertificate in a minimal ASN.1
-// Certificate structure so x509.ParseCertificate can handle it.
-// This is needed for pre-certificates (entry_type=1).
-//
-// x509.ParseCertificate enforces that the outer Certificate.signatureAlgorithm
-// matches the inner TBSCertificate.signature AlgorithmIdentifier. We therefore
-// extract the real signature AlgorithmIdentifier from inside the TBSCertificate
-// and reuse its exact DER bytes as the outer algorithm so inner == outer holds
-// for any algorithm (RSA, ECDSA, Ed25519). The signature BIT STRING is left
-// empty: ParseCertificate does not verify the signature value.
+// readOpaqueDER parses an RFC 6962 opaque<1..2^24-1> field: a 3-byte big-endian
+// length prefix at lenOffset, capped at maxCertDERBytes before any slicing.
+func readOpaqueDER(buf []byte, lenOffset int, label string) ([]byte, error) {
+	if len(buf) < lenOffset+3 {
+		return nil, fmt.Errorf("%s too short", label)
+	}
+	n := int(buf[lenOffset])<<16 | int(buf[lenOffset+1])<<8 | int(buf[lenOffset+2])
+	if n > maxCertDERBytes {
+		return nil, fmt.Errorf("%s too large: %d bytes", label, n)
+	}
+	start := lenOffset + 3
+	if len(buf) < start+n {
+		return nil, fmt.Errorf("%s truncated: need %d, have %d", label, start+n, len(buf))
+	}
+	return buf[start : start+n], nil
+}
+
+// wrapTBSCertificate wraps a precert TBSCertificate in a minimal Certificate;
+// the outer signatureAlgorithm reuses the inner DER bytes (ParseCertificate enforces inner == outer).
 func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 	algBytes, err := extractTBSSignatureAlgorithm(tbs)
 	if err != nil {
 		return nil, fmt.Errorf("extracting TBS signature algorithm: %w", err)
 	}
 
-	// Empty signature as BIT STRING.
+	// Empty signature: ParseCertificate does not verify the value.
 	sigBytes, err := asn1.Marshal(asn1.BitString{Bytes: []byte{}, BitLength: 0})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling dummy signature: %w", err)
 	}
 
-	// Wrap in outer SEQUENCE: { TBSCertificate, AlgorithmIdentifier, BIT STRING }.
 	inner := make([]byte, 0, len(tbs)+len(algBytes)+len(sigBytes))
 	inner = append(inner, tbs...)
 	inner = append(inner, algBytes...)
@@ -139,16 +113,8 @@ func wrapTBSCertificate(tbs []byte) ([]byte, error) {
 	return result, nil
 }
 
-// extractTBSSignatureAlgorithm pulls the raw DER bytes of the `signature`
-// AlgorithmIdentifier out of a TBSCertificate. The TBSCertificate SEQUENCE is:
-//
-//	version         [0] EXPLICIT Version DEFAULT v1   -- optional
-//	serialNumber        CertificateSerialNumber
-//	signature           AlgorithmIdentifier            -- the element we want
-//	...
-//
-// We walk the SEQUENCE element-by-element with asn1.RawValue and return the
-// full DER encoding (tag + length + content) of the signature element.
+// extractTBSSignatureAlgorithm returns the raw DER of the signature
+// AlgorithmIdentifier, the third TBSCertificate element after optional version and serialNumber.
 func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
 	seq, err := unmarshalSequence(tbs, "TBSCertificate")
 	if err != nil {
@@ -157,25 +123,22 @@ func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
 
 	rest := seq.Bytes
 
-	// Element 1: version [0] EXPLICIT — present only if context-specific tag 0.
+	// version [0] EXPLICIT is optional; skip it only when the context tag is present.
 	var first asn1.RawValue
 	remaining, err := asn1.Unmarshal(rest, &first)
 	if err != nil {
 		return nil, fmt.Errorf("parsing first TBS element: %w", err)
 	}
 	if first.Class == asn1.ClassContextSpecific && first.Tag == 0 {
-		// version was present; serialNumber is next.
 		rest = remaining
 	}
 
-	// serialNumber.
 	var serial asn1.RawValue
 	rest, err = asn1.Unmarshal(rest, &serial)
 	if err != nil {
 		return nil, fmt.Errorf("parsing serialNumber: %w", err)
 	}
 
-	// signature AlgorithmIdentifier — capture its full DER bytes.
 	sigAlg, err := unmarshalSequence(rest, "signature AlgorithmIdentifier")
 	if err != nil {
 		return nil, err
@@ -183,9 +146,7 @@ func extractTBSSignatureAlgorithm(tbs []byte) ([]byte, error) {
 	return sigAlg.FullBytes, nil
 }
 
-// unmarshalSequence parses the next ASN.1 value from b and asserts it is a
-// compound SEQUENCE. name is used in error messages to identify the expected
-// element.
+// unmarshalSequence parses the next ASN.1 value and asserts it is a compound SEQUENCE.
 func unmarshalSequence(b []byte, name string) (asn1.RawValue, error) {
 	var seq asn1.RawValue
 	if _, err := asn1.Unmarshal(b, &seq); err != nil {
@@ -197,8 +158,7 @@ func unmarshalSequence(b []byte, name string) (asn1.RawValue, error) {
 	return seq, nil
 }
 
-// uniqueDomains extracts all unique domain names from a certificate:
-// the Subject Common Name and all DNS Subject Alternative Names.
+// uniqueDomains returns the certificate's Common Name plus DNS SANs, deduplicated.
 func uniqueDomains(cert *x509.Certificate) []string {
 	seen := make(map[string]struct{})
 	var domains []string
@@ -221,13 +181,10 @@ func uniqueDomains(cert *x509.Certificate) []string {
 	return domains
 }
 
-// decodeBase64 decodes a standard base64-encoded string, as used by CT log
-// JSON responses.
 func decodeBase64(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
-// logParseWarning logs a certificate parse warning without panicking.
 func logParseWarning(logURL string, index int64, err error) {
 	slog.Warn("failed to parse certificate",
 		"log", logURL, "index", index, "error", err)

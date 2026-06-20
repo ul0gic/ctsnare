@@ -62,12 +62,9 @@ func generateTestCert(t *testing.T, cn string, dnsNames []string) []byte {
 	return der
 }
 
-// buildPrecertLeafInput constructs a valid MerkleTreeLeaf wrapping a bare
-// TBSCertificate as a precert_entry (entry_type=1). The PreCert body is:
-// issuer_key_hash (32 bytes) + TBSCertificate opaque<1..2^24-1>.
+// buildPrecertLeafInput builds a precert_entry MerkleTreeLeaf wrapping a bare TBSCertificate.
 func buildPrecertLeafInput(tbsDER []byte) []byte {
-	// MerkleTreeLeaf: Version(1) + LeafType(1) + Timestamp(8) + EntryType(2),
-	// followed by issuer_key_hash (32) + 3-byte TBS length prefix + TBS DER.
+	// 12-byte header + issuer_key_hash (32) + 3-byte TBS length prefix + TBS DER.
 	header := make([]byte, 12, 12+32+3+len(tbsDER))
 	header[0] = 0 // version v1
 	header[1] = 0 // timestamped_entry
@@ -103,10 +100,8 @@ func generateTestTBS(t *testing.T, cn string, dnsNames []string) []byte {
 }
 
 func TestParseCertDomains_ECDSAPrecertExtractsDomains(t *testing.T) {
-	// Regression for ISSUE-004: precert (entry_type=1) leaves carrying an
-	// ECDSA-signed TBSCertificate must parse. The previous wrapper hardcoded a
-	// SHA256WithRSA outer algorithm, which failed x509's inner==outer check for
-	// the ECDSA precerts that dominate modern CT logs.
+	// Regression for ISSUE-004: ECDSA precerts must parse; the old wrapper
+	// hardcoded an RSA outer algorithm and failed x509's inner==outer check.
 	tbs := generateTestTBS(t, "evil-phish.com", []string{"evil-phish.com", "login.evil-phish.com"})
 	leafInput := buildPrecertLeafInput(tbs)
 
@@ -227,6 +222,37 @@ func TestUniqueDomains(t *testing.T) {
 	}
 	assert.Equal(t, 1, count)
 	assert.Contains(t, domains, "bar.com")
+}
+
+func TestExtractCertFromLeaf_OversizedX509LengthRejected(t *testing.T) {
+	// x509_entry whose 24-bit length prefix exceeds maxCertDERBytes must be
+	// rejected before any allocation, even though the body is truncated.
+	leaf := make([]byte, 15)
+	binary.BigEndian.PutUint16(leaf[10:12], 0) // x509_entry
+	tooBig := maxCertDERBytes + 1
+	leaf[12] = byte((tooBig >> 16) & 0xFF)
+	leaf[13] = byte((tooBig >> 8) & 0xFF)
+	leaf[14] = byte(tooBig & 0xFF)
+
+	_, err := extractCertFromLeaf(leaf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
+}
+
+func TestExtractCertFromLeaf_OversizedPrecertLengthRejected(t *testing.T) {
+	// precert_entry whose 24-bit TBS length prefix exceeds maxCertDERBytes must
+	// be rejected before any allocation.
+	leaf := make([]byte, 12+32+3)
+	binary.BigEndian.PutUint16(leaf[10:12], 1) // precert_entry
+	off := 12 + 32                             // skip issuer_key_hash
+	tooBig := maxCertDERBytes + 1
+	leaf[off] = byte((tooBig >> 16) & 0xFF)
+	leaf[off+1] = byte((tooBig >> 8) & 0xFF)
+	leaf[off+2] = byte(tooBig & 0xFF)
+
+	_, err := extractCertFromLeaf(leaf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
 }
 
 func TestExtractCertFromLeaf_UnknownEntryType(t *testing.T) {
